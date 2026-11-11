@@ -1,0 +1,13 @@
+{
+  "name": "muelle03-demo",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Pruebas de la demo de control físico Muelle 03",
+  "scripts": {
+    "test": "node --test tests/imports.test.cjs",
+    "test:browser": "node tests/browser.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
+}
