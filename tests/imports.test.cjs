@@ -30,12 +30,12 @@ test('CSV actividades: rechazo atómico, incluidos vacíos y precios',()=>{
  const c=context();assert.throws(()=>c.loadCSV('id,avance_real_pct,pu_control\nA,20,8'));assert.throws(()=>c.loadCSV('id,avance_real_pct\nA,"20'));assert.throws(()=>c.loadCSV('id,id,avance_real_pct\nA,A,20'));assert.throws(()=>c.loadCSV('id,avance_real_pct,metrado_aprobado\nA,20, '));
 });
 test('indicadores: cabecera completa, orden, porcentajes y duplicados',()=>{
- const c=context();const r=c.normalizeTable([['Título'],headers,valid,['2026-11-10','25%',1,.25,.25]]);assert.equal(r.rows[1].ppc,.01);assert.equal(r.rows[1].ev,.005);assert.equal(r.rows[0].fecha,'2026-11-10');assert.equal(r.quality.headRow,2);
+ const c=context();const r=c.normalizeTable([['Título'],headers,valid,['2026-11-10','25%',1,.001,.001]]);assert.equal(r.rows[1].ppc,.01);assert.equal(r.rows[1].ev,.005);assert.equal(r.rows[0].fecha,'2026-11-10');assert.equal(r.quality.headRow,2);
  assert.throws(()=>c.normalizeTable([headers,valid,valid]),/duplicada/);
  assert.throws(()=>c.normalizeTable([['FECHA','PPC','EV'],valid]),/cabecera/);
 });
 test('indicadores: no retorna un subconjunto válido de un archivo inválido',()=>{
- for(const [index,value] of [[0,''],[0,'31/02/2026'],[1,' '],[1,'101%'],[2,''],[2,-1],[3,'0x10'],[4,'Infinity']]){
+ for(const [index,value] of [[0,''],[0,'31/02/2026'],[1,'101%'],[2,-1],[3,'0x10'],[4,'Infinity']]){
  const c=context(),bad=[...valid];bad[index]=value;assert.throws(()=>c.normalizeTable([headers,['2026-11-10',1,1,.5,.5],bad]),/No se aplicó ningún cambio/);
  }
  const c=context();assert.throws(()=>c.normalizeTable([[...headers,'CANT APR'],[...valid,'oops']]));assert.throws(()=>c.normalizeTable([[...headers,'PPC'],[...valid,1]]));
@@ -45,4 +45,30 @@ test('SPI reportado: PV cero genera advertencia, no cociente inventado',()=>{
 });
 test('CSV contratista rechaza comillas sin cerrar',()=>{
  const c=context();vm.runInContext(html.slice(html.indexOf('function csvEsc'),html.indexOf('function slug')),c);assert.throws(()=>c.csvParse('FECHA,PPC\n"2026-11-11,1%'),/comillas/);assert.throws(()=>c.csvParse('FECHA,PPC\n2026-11-11,"1"2'),/comillas/);assert.equal(c.csvParse('FECHA\tPPC\n2026-11-11\t1%')[1][1],'1%');
+});
+
+test('cortes finales en preparación: solo propone completos y detalla vacíos sin inventar valores',()=>{
+ const c=context(),input=[headers,valid,['2026-11-12',' ',null,'','',''],[],['2026-11-13','2%',undefined,'.01','']];
+ const before=JSON.stringify(input),r=c.normalizeTable(input);
+ assert.equal(r.rows.length,1);assert.equal(r.rows[0].ev,.005);assert.equal(r.quality.incomplete,2);
+ assert.equal(r.trailingIncomplete[0].fecha,'2026-11-12');assert.equal(r.trailingIncomplete[0].fila,3);
+ assert.deepEqual(Array.from(r.trailingIncomplete[0].faltantes),['PPC','SPI','EV','PV']);assert.equal(JSON.stringify(input),before);
+});
+test('ninguna excepción para huecos intermedios, fechas, duplicados o datos inconsistentes',()=>{
+ const c=context(),pending=['2026-11-12','','','',''];
+ for(const rows of [
+  [headers,valid,pending,['2026-11-13',1,1,.01,.01]],
+  [headers,valid,['2026-02-31','','','','']],
+  [headers,valid,['2026-11-11','','','','']],
+  [headers,valid,['2026-11-10','','','','']],
+  [headers,valid,['2026-11-12','','oops','','']],
+  [headers,valid,['2026-11-12','','1','101%','']],
+  [headers,valid,['2026-11-12','',2,.01,.01]],
+  [headers,valid,['2026-11-12','',1,.001,.001]],
+  [headers,valid,['2026-11-12',1,2,.01,.01]],
+  [headers,valid,['2026-11-12',1,1,.001,.001]],
+  [headers,valid,pending,['2026-11-11','','','','']]
+ ])assert.throws(()=>c.normalizeTable(rows),/No se aplicó ningún cambio/);
+ assert.throws(()=>c.normalizeTable([headers,pending]),/registros completos/);
+ assert.throws(()=>c.normalizeTable([[...headers,'CANT APR'],valid,[...pending,-1]]));
 });

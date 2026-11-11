@@ -22,3 +22,28 @@ with ZipFile('tests/fixtures/valid.xlsx') as src:
   header=''.join(f'<c r="{col}1" t="s"><v>{i}</v></c>' for i,col in enumerate('ABCDE'))
   row=''.join(f'<c r="{col}2"><f>1/100</f><v>{v}</v></c>' for col,v in zip('ABCDE',[46337,.01,1,.005,.005]))
   z.writestr('xl/worksheets/sheet1.xml','<worksheet><sheetData><row>'+header+'</row><row>'+row+'</row></sheetData></worksheet>')
+
+# Flujo diario ficticio: dos cortes listos y un último corte en preparación.
+from xml.sax.saxutils import escape
+complete=[['2026-11-11','1%',1,.01,.01],['2026-11-12','2%',1,.02,.02]]
+pending=['2026-11-13','',None,.03,'']
+variants={
+ 'trailing-incomplete':complete+[pending],
+ 'intermediate-incomplete':[complete[0],['2026-11-12','',None,.02,''],['2026-11-13','3%',1,.03,.03]],
+ 'pending-invalid-date':complete+[['2026-02-31','',None,.03,'']],
+ 'pending-invalid-value':complete+[['2026-11-13','',None,'oops','']],
+}
+for name,records in variants.items():
+ with ZipFile('tests/fixtures/valid.xlsx') as src, ZipFile('tests/fixtures/'+name+'.xlsx','w',ZIP_DEFLATED) as z:
+  for entry in src.namelist():
+   if entry!='xl/worksheets/sheet1.xml': z.writestr(entry,src.read(entry))
+  xml='<worksheet><sheetData>'
+  for i,row in enumerate([['FECHA','PPC','SPI','EV','PV']]+records,1):
+   xml+=f'<row r="{i}">'
+   for col,v in zip('ABCDE',row):
+    if v is None: continue # Celda ausente: debe seguir vacía, nunca cero.
+    if v=='': xml+=f'<c r="{col}{i}"><f>""</f><v></v></c>'
+    elif isinstance(v,str): xml+=f'<c r="{col}{i}" t="inlineStr"><is><t>{escape(v)}</t></is></c>'
+    else: xml+=f'<c r="{col}{i}"><v>{v}</v></c>'
+   xml+='</row>'
+  z.writestr('xl/worksheets/sheet1.xml',xml+'</sheetData></worksheet>')

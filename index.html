@@ -225,28 +225,48 @@ function normalizeTable(rows){
   const h=rows[start].map(slug);
   if(new Set(h.filter(Boolean)).size!==h.filter(Boolean).length)throw Error('Cabeceras duplicadas.');
   const at=(r,...names)=>{const j=names.map(x=>h.indexOf(x)).find(j=>j>=0);return j===undefined?'':r[j]};
-  const out=[],warn=[],errors=[],dates=new Set();
+  const out=[],warn=[],errors=[],dates=new Set(),trailingIncomplete=[],reviewed=[];
+  const blank=value=>value===null||value===undefined||String(value).trim()==='';
+  let pending=false,lastDate='';
   for(let i=start+1;i<rows.length;i++){
-    const r=rows[i];if(!r.some(x=>x!==null&&x!==undefined&&String(x).trim()!==''))continue;
+    const r=rows[i];if(!r.some(x=>!blank(x)))continue;
     const fail=message=>errors.push('Fila '+(i+1)+': '+message);
     const date=excelToISO(at(r,'FECHA'));
     if(!date){fail('FECHA vacía, inexistente o formato incorrecto');continue}
     if(dates.has(date)){fail('FECHA duplicada '+date);continue}dates.add(date);
-    const ev=frac(at(r,'EV')),pv=frac(at(r,'PV')),ppc=frac(at(r,'PPC')),spi=nv(at(r,'SPI'));
-    if(![ev,pv,ppc,spi].every(Number.isFinite)||ev<0||pv<0||ev>1||pv>1||ppc<0||ppc>1||spi<0){fail('Indicadores vacíos, inválidos o fuera de rango');continue}
-    const optional=(name,parse,...aliases)=>{const raw=at(r,name,...aliases);if(raw===null||raw===undefined||String(raw).trim()==='')return NaN;const n=parse(raw);if(!Number.isFinite(n))fail(name+' inválido');return n};
+    const values={};
+    for(const key of ['PPC','SPI','EV','PV']){
+      const raw=at(r,key);
+      values[key]=blank(raw)?null:(key==='SPI'?nv(raw):frac(raw));
+      const n=values[key];
+      if(n!==null&&(!Number.isFinite(n)||n<0||(key!=='SPI'&&n>1)))fail(key+' inválido o fuera de rango');
+    }
+    const {EV:ev,PV:pv,PPC:ppc,SPI:spi}=values;
+    const incomplete=Object.values(values).some(n=>n===null);
+    const optional=(name,parse,...aliases)=>{const raw=at(r,name,...aliases);if(blank(raw))return NaN;const n=parse(raw);if(!Number.isFinite(n))fail(name+' inválido');return n};
     const row={fecha:date,semana:optional('SEMANA_ANO',nv,'SEMANA_A_O','SEMANA'),dia:String(at(r,'DIA')||''),ppc,spi,ev,pv,
       delta_real:optional('DELTA_AVANCE_DIARIO_REAL',frac),delta_plan:optional('DELTA_AVANCE_DIARIO_PLAN',frac),
       desfase:optional('DESFASE_EV',frac),apr:optional('CANT_APR',nv),observaciones:String(at(r,'OBSERVACIONES')||'')};
-    if(pv>0&&Math.abs(spi-ev/pv)>0.025)warn.push(date+': SPI difiere de EV/PV');
-    if(pv===0)warn.push(date+': PV cero; no se puede contrastar SPI con EV/PV');
-    out.push(row);
+    if(Number.isFinite(row.semana)&&(!Number.isInteger(row.semana)||row.semana<1||row.semana>53))fail('SEMANA inválida');
+    if(Number.isFinite(row.apr)&&(!Number.isInteger(row.apr)||row.apr<0))fail('CANT_APR inválido');
+    if(pv>0&&ev!==null&&spi!==null&&Math.abs(spi-ev/pv)>0.025)fail('SPI difiere de EV/PV');
+    // La excepción exige un sufijo físico y cronológico, nunca un hueco intermedio.
+    if((pending||incomplete)&&lastDate&&date<=lastDate)fail('El corte en preparación debe ser posterior a los cortes anteriores');
+    if(incomplete){pending=true;trailingIncomplete.push({fila:i+1,fecha:date,faltantes:Object.keys(values).filter(k=>values[k]===null)})}
+    else{if(pending)fail('Fila incompleta intermedia: hay un corte completo posterior');out.push(row)}
+    if(pv===0&&!incomplete)warn.push(date+': PV cero; no se puede contrastar SPI con EV/PV');
+    reviewed.push({fila:i+1,...row});if(date>lastDate)lastDate=date;
+  }
+  let lastEV=null,lastPV=null;
+  for(const row of reviewed.sort((a,b)=>a.fecha.localeCompare(b.fecha))){
+    if(row.ev!==null&&lastEV!==null&&row.ev+0.002<lastEV)errors.push('Fila '+row.fila+': EV acumulado decreciente');
+    if(row.pv!==null&&lastPV!==null&&row.pv+0.002<lastPV)errors.push('Fila '+row.fila+': PV acumulado decreciente');
+    if(row.ev!==null)lastEV=row.ev;if(row.pv!==null)lastPV=row.pv;
   }
   if(errors.length)throw Error('No se aplicó ningún cambio. '+errors.slice(0,5).join('; ')+(errors.length>5?' (y '+(errors.length-5)+' errores más)':''));
   const result=out.sort((a,b)=>a.fecha.localeCompare(b.fecha));
   if(!result.length)throw Error('No se encontraron registros completos de indicadores diarios');
-  for(let i=1;i<result.length;i++)if(result[i].ev+0.002<result[i-1].ev||result[i].pv+0.002<result[i-1].pv)warn.push(result[i].fecha+': revisar cambio del avance acumulado');
-  return {rows:result,quality:{incomplete:0,invalid:0,warnings:warn,duplicates:0,headRow:start+1}};
+  return {rows:result,trailingIncomplete,quality:{incomplete:trailingIncomplete.length,invalid:0,warnings:warn,duplicates:0,headRow:start+1}};
 }
 function demoFor(id){let index=SVC.findIndex(s=>s.id===id),rows=[];const first=Date.UTC(2026,7,3),end=Date.UTC(2026,10,3),total=Math.ceil((end-first)/86400000);let max= id==='P01'?1:[0,.79,.64,.83,.52,.68][index];for(let i=0;i<=total;i++){let d=new Date(first+i*86400000),day=d.getUTCDay();if(day===0)continue;const t=i/total,plan=id==='P01'?1:Math.min(.99,max+(.1+.02*index)*t)/1.18*Math.pow(t,.80),ev=id==='P01'?1:Math.min(max,Math.pow(t,.96)*max);let pv=id==='P01'?1:plan;let ppc=id==='P01'?1:Math.max(.44,Math.min(.98,.84+.10*Math.sin(i*.29+index)));rows.push({fecha:d.toISOString().slice(0,10),semana:Math.ceil((i+1)/7)+31,dia:'',ppc,spi:pv>0?ev/pv:1,ev,pv,delta_real:0,delta_plan:0,desfase:ev-pv,apr:9+(i%6),observaciones:''})}for(let i=1;i<rows.length;i++){rows[i].delta_real=rows[i].ev-rows[i-1].ev;rows[i].delta_plan=rows[i].pv-rows[i-1].pv}return {rows,source:'DEMO',file:'Serie sintética de ejemplo',quality:{incomplete:0,invalid:0,warnings:[],duplicates:0}}}
 SVC.forEach(x=>byService[x.id]=demoFor(x.id));
@@ -256,14 +276,34 @@ function drawLine(rows,key,color,point){let W=840,H=270,padL=48,padT=17,padB=34,
 function renderKpi(){const holder=$k('kpiMain');if(!holder)return;let series=selectedData(),rows=series.rows;if(pointer<0||pointer>=rows.length)pointer=rows.length-1;let r=rows[pointer],last=rows.at(-1),a=data.activities.filter(t=>t.servicio===chosen),base=a.reduce((s,t)=>s+t.metrado_aprobado*t.pu_control,0),evd=a.reduce((s,t)=>s+t.metrado_aprobado*t.pu_control*t.avance_real_pct/100,0);let physical=base>0?evd/base:NaN;let src=sourceBadge(series.source);const status=series.source==='IMPORTADO'?'<span class="kpi-stamp imported">FUENTE IMPORTADA</span>':'<span class="kpi-stamp">EJEMPLO FICTICIO</span>';let context=series.source==='IMPORTADO'?'Esta serie procede exclusivamente del archivo seleccionado en este navegador. El avance físico por eje continúa siendo DEMO y no se puede conciliar aún sin mapeo de partidas.':'La serie temporal y las actividades por eje son independientes y ficticias. Sirven para probar la interfaz sin publicar información real.';
 let opt=SVC.map(s=>`<option value="${s.id}" ${s.id===chosen?'selected':''}>${s.id} · ${escapeHtml(s.name)}</option>`).join('');
 const metrics=[['PPC del día',per(r.ppc),'Compromisos cumplidos'],['SPI reportado',round(r.spi,3),'EV dividido entre PV'],['EV acumulado',per(r.ev,2),'Valor ganado normalizado'],['PV acumulado',per(r.pv,2),'Avance planificado'],['Desfase EV − PV',((r.ev-r.pv)>=0?'+':'')+per(r.ev-r.pv,2),'Puntos porcentuales'],['APR',Number.isFinite(r.apr)?String(r.apr):'—','Cantidad reportada']];
-holder.innerHTML=`<div class="panel kpi-uploader"><div class="panel-body"><div class="kpi-controls"><label><b>Servicio del reporte</b><select id="kpiService">${opt}</select></label><label><b>Archivo del contratista</b><input type="file" id="kpiFile" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Excel Indicadores Diarios o CSV"/></label><button type="button" class="btn" id="kpiReset">Restablecer ejemplo</button><button type="button" class="btn" id="kpiExport">Exportar serie CSV</button></div><p class="kpi-note">Acepta directamente <b>.xlsx</b> con la hoja Indicadores Diarios o <b>.csv</b> exportado de esa misma hoja. Se exige la hoja Indicadores Diarios y valores de fórmulas recalculados. Fechas: AAAA-MM-DD o DD/MM/AAAA. Un registro inválido rechaza el archivo completo. Con % se interpretan puntos porcentuales; sin símbolo, 0 a 1 son fracciones y valores mayores que 1 hasta 100 son porcentajes. Primero selecciona el servicio correspondiente. EV y PV reportados no se consideran indicadores físicos validados.</p><div id="kpiToast" role="status" class="kpi-toast"></div></div></div>
+holder.innerHTML=`<div class="panel kpi-uploader"><div class="panel-body"><div class="kpi-controls"><label><b>Servicio del reporte</b><select id="kpiService">${opt}</select></label><label><b>Archivo del contratista</b><input type="file" id="kpiFile" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" aria-label="Excel Indicadores Diarios o CSV"/></label><button type="button" class="btn" id="kpiReset">Restablecer ejemplo</button><button type="button" class="btn" id="kpiExport">Exportar serie CSV</button></div><p class="kpi-note">Acepta directamente <b>.xlsx</b> con la hoja Indicadores Diarios o <b>.csv</b> exportado de esa misma hoja. Se exige la hoja Indicadores Diarios y valores de fórmulas recalculados. Fechas: AAAA-MM-DD o DD/MM/AAAA. Un registro inválido o una fila incompleta intermedia rechaza el archivo completo. Solo las filas finales con fecha válida e indicadores pendientes pueden excluirse con tu confirmación, conservando los cortes completos anteriores. Con % se interpretan puntos porcentuales; sin símbolo, 0 a 1 son fracciones y valores mayores que 1 hasta 100 son porcentajes. Primero selecciona el servicio correspondiente. EV y PV reportados no se consideran indicadores físicos validados.</p><div id="kpiToast" role="status" class="kpi-toast"></div></div></div>
 <div class="kpi-snapshot"><div><span class="kpi-eyebrow">${chosen} · ${escapeHtml(SVC.find(s=>s.id===chosen).name)}</span><h3>Indicadores diarios del contratista</h3><small>${escapeHtml(series.file)} · ${series.rows.length} cortes completos · Último ${fmtDate(last.fecha)}</small></div>${status}</div>
 <div class="kpi-metrics">${metrics.map(m=>`<div class="kpi-tile"><small>${m[0]}</small><strong>${m[1]}</strong><span>${m[2]}</span></div>`).join('')}</div>
 <div class="kpi-two"><article class="panel"><div class="panel-head"><div><h2>Curva EV y PV por servicio</h2><p>Selecciona una fecha para consultar el corte.</p></div></div><div class="panel-body"><div class="kpi-legend"><span><i style="background:#16a567"></i>EV reportado</span><span><i style="background:#2667ed"></i>PV reportado</span><span>${fmtDate(r.fecha)}</span></div>${drawLine(rows,'ev','#16a567',pointer)}<input type="range" id="kpiCut" min="0" max="${rows.length-1}" value="${pointer}" step="1" style="width:100%"/><div class="kpi-legend"><span>Inicio ${fmtDate(rows[0].fecha)}</span><strong>Corte ${fmtDate(r.fecha)}</strong><span>Fin ${fmtDate(last.fecha)}</span></div></div></article><article class="panel"><div class="panel-head"><div><h2>Conexión con avance por eje</h2><p>Dos granularidades, una misma EDT</p></div></div><div class="panel-body"><div class="kpi-linkline"><span>Fuente de indicadores diarios (${src})</span><b>${per(r.ev,2)} EV</b></div><div class="kpi-linkline"><span>Base de actividades por eje (simulada)</span><b>${per(physical,2)}</b></div><p class="kpi-note kpi-guard">${context}</p><div class="kpi-linkline"><span>Clave de cruce</span><b>${chosen} + fecha de corte</b></div><div class="kpi-linkline"><span>Detalle espacial</span><b>${chosen==='P05'?'39 ejes DEMO':chosen==='P02'?'44 ejes DEMO':'Por desagregar'}</b></div>${['P02','P05'].includes(chosen)?`<button class="btn primary" type="button" data-portal-matrix="${chosen}">Abrir matriz de ${chosen==='P02'?'plataforma':'arriostre'} →</button>`:'<span class="kpi-note">Este servicio requiere actividades georreferenciadas para mostrar matriz por eje.</span>'}</div></article></div>
 <div class="panel"><div class="panel-head"><div><h2>Histórico de cortes</h2><p>Últimos 20 registros con indicadores completos. Datos ${series.source==='IMPORTADO'?'del archivo importado':'simulados'}.</p></div></div><div class="kpi-tablewrap"><table class="kpi-table"><thead><tr><th>Fecha</th><th>Semana</th><th>PPC</th><th>SPI</th><th>EV</th><th>PV</th><th>Desfase</th><th>APR</th></tr></thead><tbody>${rows.slice(Math.max(0,pointer-19),pointer+1).reverse().map(q=>`<tr><td>${fmtDate(q.fecha)}</td><td>${Number.isFinite(q.semana)?q.semana:'—'}</td><td>${per(q.ppc,0)}</td><td>${round(q.spi,3)}</td><td>${per(q.ev,2)}</td><td>${per(q.pv,2)}</td><td>${per(q.ev-q.pv,2)}</td><td>${Number.isFinite(q.apr)?q.apr:'—'}</td></tr>`).join('')}</tbody></table></div></div>
-<div class="kpi-quality">${series.quality.incomplete?`<b>${series.quality.incomplete} fila(s) incompleta(s) omitidas.</b> `:''}${series.quality.invalid?`${series.quality.invalid} fila(s) inválida(s). `:''}${series.quality.duplicates?`${series.quality.duplicates} fecha(s) duplicada(s) normalizadas. `:''}${series.quality.warnings.length?`Advertencias de consistencia: ${series.quality.warnings.slice(0,3).map(escapeHtml).join('; ')}.`:'Los datos cumplen las validaciones básicas. '}Las series pueden representar universos presupuestarios diferentes. <b>No se mezclan EV y PV con el avance de eje sin conciliar alcance, presupuesto y corte.</b></div>`;
+<div class="kpi-quality">${series.quality.incomplete?`<b>${series.quality.incomplete} fila(s) final(es) incompleta(s) excluidas con confirmación.</b> `:''}${series.quality.invalid?`${series.quality.invalid} fila(s) inválida(s). `:''}${series.quality.duplicates?`${series.quality.duplicates} fecha(s) duplicada(s) normalizadas. `:''}${series.quality.warnings.length?`Advertencias de consistencia: ${series.quality.warnings.slice(0,3).map(escapeHtml).join('; ')}.`:'Los datos cumplen las validaciones básicas. '}Las series pueden representar universos presupuestarios diferentes. <b>No se mezclan EV y PV con el avance de eje sin conciliar alcance, presupuesto y corte.</b></div>`;
 $k('kpiService').onchange=e=>{chosen=e.target.value;pointer=-1;renderKpi()};$k('kpiReset').onclick=()=>{byService[chosen]=demoFor(chosen);pointer=-1;renderKpi()};$k('kpiCut').oninput=e=>{pointer=Number(e.target.value);renderKpi()};$k('kpiExport').onclick=()=>{let dataRows=selectedData().rows;let fields=['semana','dia','fecha','ppc','spi','ev','pv','delta_real','delta_plan','desfase','apr','observaciones'];let labels=['SEMANA AÑO','DIA','FECHA','PPC','SPI','EV','PV','DELTA AVANCE DIARIO REAL','DELTA AVANCE DIARIO PLAN','DESFASE EV','CANT APR','OBSERVACIONES'];let csv=[labels.join(','),...dataRows.map(r=>fields.map(f=>csvEsc(r[f])).join(','))].join('\r\n');let blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='historico_'+chosen+'.csv';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),5000)};
-$k('kpiFile').onchange=async e=>{let f=e.target.files[0];if(!f)return;let btn=e.target;btn.disabled=true;let target=chosen;try{let matrix=/\.xlsx$/i.test(f.name)?await xlsxRead(f):csvParse(await f.text());let parsed=normalizeTable(matrix);byService[target]={...parsed,source:'IMPORTADO',file:f.name};pointer=-1;renderKpi();$k('kpiToast').textContent=`✓ ${parsed.rows.length} cortes de ${f.name} vinculados a ${target}. ${parsed.quality.incomplete} fila(s) incompleta(s) excluidas. No se envió ningún archivo.`; $k('kpiToast').style.color='#087c56';}catch(err){$k('kpiToast').textContent='No se pudo importar: '+err.message+' Puedes guardar la hoja original como CSV y volver a cargarla.';$k('kpiToast').style.color='#c4434e'}finally{btn.disabled=false;btn.value=''}};
+$k('kpiFile').onchange=async e=>{
+  const f=e.target.files[0];if(!f)return;
+  const btn=e.target,target=chosen;btn.disabled=true;
+  const toast=(message,color)=>{$k('kpiToast').textContent=message;$k('kpiToast').style.color=color};
+  try{
+    const matrix=/\.xlsx$/i.test(f.name)?await xlsxRead(f):csvParse(await f.text());
+    const parsed=normalizeTable(matrix);
+    if(parsed.trailingIncomplete.length){
+      const detail=parsed.trailingIncomplete.map(r=>'Fila '+r.fila+' ('+r.fecha+'): faltan '+r.faltantes.join(', ')).join('\n');
+      const warning='Advertencia: '+parsed.trailingIncomplete.length+' fila(s) final(es) con cortes diarios en preparación.\n'+detail;
+      toast(warning,'#956000');
+      if(!window.confirm(warning+'\n\n¿Importar únicamente los '+parsed.rows.length+' cortes completos y validados de '+f.name+' para '+target+'? Se sustituirá la serie de ese servicio. Los cortes incompletos no se importarán.')){
+        toast('Importación cancelada. Se conservan los indicadores anteriores. '+warning,'#956000');return;
+      }
+    }
+    // Único punto de aplicación, después de validar todo y obtener la confirmación cuando proceda.
+    byService[target]={...parsed,source:'IMPORTADO',file:f.name};pointer=-1;renderKpi();
+    toast(`✓ ${parsed.rows.length} cortes de ${f.name} vinculados a ${target}. `+(parsed.quality.incomplete?`Advertencia: ${parsed.quality.incomplete} fila(s) final(es) incompleta(s) excluidas con tu confirmación. `:'')+'No se envió ningún archivo.',parsed.quality.incomplete?'#956000':'#087c56');
+  }catch(err){toast('No se pudo importar: '+err.message+' Se conservan los indicadores anteriores. Puedes guardar la hoja original como CSV y volver a cargarla.','#c4434e')}
+  finally{btn.disabled=false;btn.value=''}
+};
 }
 /* Lector XLSX pequeño: trabaja con el XLSX existente, sin CDN ni acceso a internet. 
    Requiere soporte de Compression Streams para deflate-raw (Safari/Chrome modernos).
@@ -272,7 +312,7 @@ async function xlsxRead(file){if(typeof DecompressionStream==='undefined')throw 
 async function get(name){let a=entries.get(name);if(!a)throw Error('Falta '+name+' en XLSX');let p=a.local;if(u32(p)!==0x04034b50)throw Error('Entrada comprimida no válida');p+=30+u16(p+26)+u16(p+28);let b=u8.slice(p,p+a.len);if(a.comp===0)return dec.decode(b);if(a.comp!==8)throw Error('Compresión XLSX no soportada');try{let pipe=new Blob([b]).stream().pipeThrough(new DecompressionStream('deflate-raw'));return await new Response(pipe).text()}catch{throw Error('Tu navegador no admite el método de compresión XLSX; usa CSV.')}}
 let parser=new DOMParser(),XML=s=>{const xml=parser.parseFromString(s,'text/xml');if(xml.getElementsByTagName('parsererror').length)throw Error('XML inválido en XLSX');return xml},nodes=(root,tag)=>[...root.getElementsByTagName('*')].filter(n=>n.localName===tag),first=(node,tag)=>nodes(node,tag)[0];let workbook=XML(await get('xl/workbook.xml')),sheets=nodes(workbook,'sheet');if(nodes(workbook,'workbookPr').some(n=>['1','true'].includes(n.getAttribute('date1904'))))throw Error('Sistema de fechas Excel 1904 no soportado; exporta como CSV con fechas explícitas.');let sheet=sheets.find(s=>s.getAttribute('name')==='Indicadores Diarios');if(!sheet)throw Error('Falta la hoja Indicadores Diarios en XLSX');let rid=sheet.getAttribute('r:id')||sheet.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships','id');let rels=XML(await get('xl/_rels/workbook.xml.rels'));let rel=nodes(rels,'Relationship').find(n=>n.getAttribute('Id')===rid);if(!rel)throw Error('Relación de hoja XLSX no válida');let target=rel.getAttribute('Target')||'';let path=target.startsWith('/')?target.slice(1):('xl/'+target.replace(/^\.\//,''));if(!entries.has(path))throw Error('No se encuentra la hoja declarada en XLSX');
 let strings=[];if(entries.has('xl/sharedStrings.xml')){const xml=XML(await get('xl/sharedStrings.xml'));strings=nodes(xml,'si').map(si=>nodes(si,'t').map(t=>t.textContent).join(''))}
-let xml=XML(await get(path)),rs=nodes(xml,'row'),table=[];for(let row of rs){let arr=[];for(let c of nodes(row,'c')){let addr=c.getAttribute('r')||'',letters=(addr.match(/^[A-Z]+/)||['A'])[0],ix=0;for(let k=0;k<letters.length;k++)ix=ix*26+letters.charCodeAt(k)-64;ix--;let v=first(c,'v')?.textContent??'',ty=c.getAttribute('t');if(ty==='s')v=strings[+v]||'';else if(ty==='inlineStr')v=nodes(c,'t').map(t=>t.textContent).join('');else if(ty!=='str'&&ty!=='e'&&v!=='')v=Number(v);arr[ix]=v}table.push(arr)}return table;
+let xml=XML(await get(path)),rs=nodes(xml,'row'),table=[];for(let row of rs){let arr=[];for(let c of nodes(row,'c')){let addr=c.getAttribute('r')||'',letters=(addr.match(/^[A-Z]+/)||['A'])[0],ix=0;for(let k=0;k<letters.length;k++)ix=ix*26+letters.charCodeAt(k)-64;ix--;let v=first(c,'v')?.textContent??'',ty=c.getAttribute('t');if(ty==='e')throw Error('Celda con error de Excel: '+addr);if(ty==='s')v=strings[+v]||'';else if(ty==='inlineStr')v=nodes(c,'t').map(t=>t.textContent).join('');else if(ty!=='str'&&ty!=='e'&&v!=='')v=Number(v);arr[ix]=v}table.push(arr)}return table;
 }
 /* Evento adicional: conserva todas las rutas y botones de la plataforma original. */
 document.addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;if(b.dataset.screen==='contractor')renderKpi();if(b.dataset.portalMatrix){module=b.dataset.portalMatrix;showScreen('matrix');renderAll()}});

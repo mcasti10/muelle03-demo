@@ -43,6 +43,40 @@ const {chromium}=require('playwright');
    await page.locator('#kpiToast').filter({hasText:['valid.xlsx','cached-formulas.xlsx'].includes(name)?'1 cortes':'No se pudo importar'}).waitFor();
    assert.equal(await page.locator('.kpi-metrics').innerText(),snapshot);
   }
-  assert.deepEqual(errors,[]);console.log('OK: navegación, matrices 44/39, fichas, procesos, edición, CSV/XLSX atómicos, indicadores y visor 4D.');
+  // XLSX real del flujo diario: cancelación, errores sin diálogo y aceptación explícita.
+  const exportSeries=async()=>{
+   const download=page.waitForEvent('download');await page.locator('#kpiExport').click();
+   const stream=await (await download).createReadStream();let text='';for await(const chunk of stream)text+=chunk.toString();return text;
+  };
+  const originalCSV=await exportSeries();
+  const originalSource=await page.locator('.kpi-snapshot').innerText();
+  const originalActivities=await page.evaluate(()=>JSON.stringify({data,totals:agg(data.activities)}));
+  const pendingFile='tests/fixtures/trailing-incomplete.xlsx';
+  let dialogMessage='';
+  page.once('dialog',async dialog=>{dialogMessage=dialog.message();await dialog.dismiss()});
+  await page.locator('#kpiFile').setInputFiles(pendingFile);
+  await page.locator('#kpiToast').filter({hasText:'Importación cancelada'}).waitFor();
+  assert.match(dialogMessage,/2026-11-13/);assert.match(dialogMessage,/faltan PPC, SPI, PV/);assert.match(dialogMessage,/2 cortes completos y validados/);
+  assert.equal(await exportSeries(),originalCSV);assert.equal(await page.locator('.kpi-snapshot').innerText(),originalSource);
+  assert.equal(await page.locator('.kpi-metrics').innerText(),snapshot);
+  // Ni una fecha mala ni un dato inválido se pueden excluir con confirmación.
+  let unexpectedDialogs=0;
+  const rejectDialog=async dialog=>{unexpectedDialogs++;await dialog.dismiss()};page.on('dialog',rejectDialog);
+  for(const name of ['intermediate-incomplete.xlsx','pending-invalid-date.xlsx','pending-invalid-value.xlsx']){
+   await page.locator('#kpiFile').setInputFiles('tests/fixtures/'+name);
+   await page.locator('#kpiToast').filter({hasText:'No se pudo importar'}).waitFor();
+   assert.equal(await exportSeries(),originalCSV);assert.equal(await page.locator('.kpi-snapshot').innerText(),originalSource);
+  }
+  page.off('dialog',rejectDialog);assert.equal(unexpectedDialogs,0);
+  page.once('dialog',async dialog=>{await dialog.accept()});
+  await page.locator('#kpiFile').setInputFiles(pendingFile);
+  await page.locator('#kpiToast').filter({hasText:'2 cortes'}).waitFor();
+  assert.match(await page.locator('#kpiToast').innerText(),/excluidas con tu confirmación/);
+  assert.match(await page.locator('.kpi-quality').innerText(),/1 fila.*excluidas con confirmación/);
+  const acceptedCSV=await exportSeries();assert.notEqual(acceptedCSV,originalCSV);
+  assert.match(acceptedCSV,/2026-11-12/);assert.doesNotMatch(acceptedCSV,/2026-11-13/);
+  assert.equal(acceptedCSV.trim().split('\n').length,3);assert.match(await page.locator('.kpi-metrics').innerText(),/2.00%/);
+  assert.equal(await page.evaluate(()=>JSON.stringify({data,totals:agg(data.activities)})),originalActivities);
+  assert.deepEqual(errors,[]);console.log('OK: navegación, matrices 44/39, fichas, procesos, edición, CSV/XLSX atómicos, cancelación/confirmación de cortes en preparación, indicadores y visor 4D.');
  }finally{await browser?.close();await new Promise(r=>server.close(r))}
 })().catch(e=>{console.error(e);process.exitCode=1});
