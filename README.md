@@ -27,3 +27,5 @@ npm run test:browser
 - [Diseño y límites del avance físico](docs/migracion-avance-fisico.md)
 
 La PR #1 contiene validaciones de importación; PR #2 agrega revisión local de XML y esta funcionalidad física se mantiene en una PR separada sobre esas ramas. No incorporar datos empresariales o contractualizados en el repositorio público.
+
+**Verificación:** la revisión en Codespaces y los controles automatizados preceden a cualquier publicación en `main`.
