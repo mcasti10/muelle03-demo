@@ -67,7 +67,7 @@ const P05=[
 ["AR28","Restitución","Sellado de juntas","m",12,0.04,["AR27"]],
 ["AR29","Cierre","Inspección y liberación del eje","und",1,0.7,["AR19","AR28"]]
 ];
-function applies(kind,axis){return kind==="todos"||((kind==="fender"||kind==="tipoII-III")&&axis.requiere_defensa&&(kind!=="tipoII-III"||axis.tipologia!=="I"))}
+function applies(kind,axis){if(kind==="todos")return true;if(kind==="fender")return !!axis.requiere_defensa;if(kind==="tipoII-III")return !!axis.requiere_defensa&&["II","III"].includes(axis.tipologia);return false}
 function generate(template,svc,axis,rate){
  const usable=template.filter(x=>svc==="P05"||applies(x[7],axis));
  const set=new Set(usable.map(x=>x[0]));
@@ -88,9 +88,9 @@ function apply(input){
  d.meta.version="V0.3-EDT-FISICA";
  d.meta.legend="DATOS SINTÉTICOS. Sub-EDT resumida a partir de tipologías del cronograma; cantidades, pesos, fechas y avances NO son datos reales.";
  d.meta.excluded_arr_axes=[40,41,42,43,44];
- d.meta.pesos="Coeficientes técnicos adimensionales provisionales, sin relación con precios ni presupuesto.";
+ d.meta.pesos="Coeficientes técnicos adimensionales provisionales, sin relación con precios ni presupuesto. Tipologías de defensa todavía por asignar.";
  const fenders=new Set(d.meta.fender_axes);
- d.axes.forEach(a=>{a.arriostre=a.num>=1&&a.num<=39;a.requiere_defensa=fenders.has(a.num);a.tipologia=a.requiere_defensa?["I","II","III"][a.num%3]:null});
+ d.axes.forEach(a=>{a.arriostre=a.num>=1&&a.num<=39;a.requiere_defensa=fenders.has(a.num);a.tipologia=a.requiere_defensa?"PENDIENTE":null});
  const old=d.activities;
  const rates=new Map();for(const a of d.axes)for(const svc of ["P02","P05"]){const list=old.filter(t=>t.servicio===svc&&t.eje===a.id);rates.set(svc+"-"+a.id,list.length?list.reduce((s,t)=>s+(Number(t.avance_real_pct)||0),0)/list.length:0)}
  const extras=old.filter(t=>!["P02","P05"].includes(t.servicio)||(!/^E\d\d$/.test(t.eje)&&t.servicio==="P02")).map(t=>{

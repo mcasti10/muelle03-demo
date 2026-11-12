@@ -5,7 +5,7 @@ const {chromium}=require('playwright');
 (async()=>{
  const html=fs.readFileSync('index.html');
  // Se sirve bajo la misma subruta que Pages; no se modifica el documento para las pruebas.
- const server=http.createServer((req,res)=>{if(req.url==='/muelle03-demo/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html)}else{res.statusCode=404;res.end()}});
+ const server=http.createServer((req,res)=>{if(req.url==='/muelle03-demo/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html)}else if(req.url==='/muelle03-demo/edt-fisica.js'){res.setHeader('Content-Type','application/javascript; charset=utf-8');res.end(fs.readFileSync('edt-fisica.js'))}else{res.statusCode=404;res.end()}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  let browser;
  try{
@@ -18,6 +18,8 @@ const {chromium}=require('playwright');
    await page.locator(`[data-module="${pkg}"]`).click();assert.equal(await page.locator('#fullAxisGrid button').count(),44);assert.equal(await page.locator('#fullAxisGrid button:not([disabled])').count(),applicable);
   }
   await page.locator('#fullAxisGrid [data-ax="E20"]').click();assert.match(await page.locator('#axisDetail').innerText(),/E20/);
+  assert.ok((await page.locator('#globalMetrics').innerText()).includes('AVANCE FÍSICO'));
+  assert.ok(!(await page.locator('#globalMetrics').innerText()).includes('PRESUPUESTO'));
   const id='P05-E20-AR03';
   await page.locator('[data-screen="data"]').first().click();
   const upload=async text=>page.locator('#csvFile').setInputFiles({name:'demo.csv',mimeType:'text/csv',buffer:Buffer.from(text)});

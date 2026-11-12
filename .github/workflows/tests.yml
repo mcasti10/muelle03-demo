@@ -1,9 +1,9 @@
-name: Validación de importaciones
+name: Validación técnica y regresión
 on:
   pull_request:
-    branches: [main]
+    branches: [main, 'feature/revision-edt-xml']
   push:
-    branches: ['fix/validacion-importaciones']
+    branches: ['fix/validacion-importaciones','feature/edt-avance-fisico-sin-costos']
 permissions:
   contents: read
 jobs:
