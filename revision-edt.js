@@ -27,7 +27,7 @@ t.parent=stack[stack.length-1]||null;if(t.parent)t.parent.kids.push(t);
 stack.push(t);tasks.push(t);byUid.set(uid,t);
 });
 let places=[];
-tasks.forEach(t=>{if(!t.summary)return;let m=code==="P02"?t.name.match(/^SECTOR\s+[AB]\s*\d+[\s\-–]*BLOQUE\s+(\d+)/i):t.name.match(/^EJES?\s+DE\s+INTERVENCI[ÓO]N\s+(\d+)/i);if(m){t.number=n(m[1]);t.key=(code==="P02"?"B":"E")+String(t.number).padStart(2,"0");t.label=(code==="P02"?"Bloque ":"Eje ")+String(t.number).padStart(2,"0");places.push(t)}});
+tasks.forEach(t=>{if(!t.summary)return;let m=code==="P02"?t.name.match(/^SECTOR\s+[AB]\s*\d+[\s\-–]*(?:BLOQUE|EJE)\s+(\d+)/i):t.name.match(/^EJES?\s+DE\s+INTERVENCI[ÓO]N\s+(\d+)/i);if(m){t.number=n(m[1]);t.key=(code==="P02"?"B":"E")+String(t.number).padStart(2,"0");t.label=(code==="P02"?"Bloque ":"Eje ")+String(t.number).padStart(2,"0");places.push(t)}});
 places.sort((a,b)=>a.number-b.number);
 const descendants=root=>{let result=[],pending=[...root.kids];while(pending.length){const t=pending.shift();result.push(t);pending.unshift(...t.kids)}return result};
 return {file,code,tasks,places,byUid,descendants,links:tasks.reduce((k,t)=>k+t.pred.length,0),status:doc.getElementsByTagNameNS(NS,"StatusDate")[0]?.textContent||""};
