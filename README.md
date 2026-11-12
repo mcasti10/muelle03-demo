@@ -11,7 +11,7 @@ Esta rama implementa una demostración de ponderación técnica **no monetaria**
 - **Predecesoras**: identifican actividades que deben revisarse antes de declarar terminada una sucesora. Un solape programado en MS Project no es automáticamente un incumplimiento constructivo.
 - **Liberación técnica**: 100% físico no equivale a aceptación. Existe un control de liberación de ejemplo, temporal en el navegador, que no sustituye ensayos, inspección ni autorizaciones reales.
 
-La pestaña **Revisión EDT** permite cargar los XML originales *solo localmente en el navegador*. Los archivos no se almacenan ni publican en GitHub. Los registros reales del contratista todavía **no se han conciliado ni migrado** a los datos de las matrices.
+El módulo temporal de revisión de XML no forma parte del aplicativo principal. Los archivos reales del contratista no se almacenan ni publican en GitHub, y sus registros todavía **no se han conciliado ni migrado** a las matrices.
 
 ## Pruebas
 
