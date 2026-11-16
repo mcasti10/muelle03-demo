@@ -15,7 +15,7 @@
 <button id="fit" type="button">Encajar modelo</button><button id="top" type="button">Vista superior</button><button id="iso" type="button">Isométrica</button></div>
 <div class="stage"><div class="viewer" id="viewer"><div id="canvas"></div><div class="notice" id="notice"><b>Modelo sin cargar</b>Elige el archivo IFC desde tu computadora. Se procesará en el navegador y no se enviará al repositorio.</div><div id="progress"></div></div>
 <aside class="side"><h2>Elemento seleccionado</h2><div class="detail" id="selected"><span class="muted">Haz clic sobre una losa, viga o pilote una vez cargado el IFC.</span></div>
-<div class="side-note"><b>Correspondencia inicial</b><p>La clasificación P02 y P05 se obtiene de la clase y el nombre IFC. No equivale a vincular el elemento a una actividad, eje o área.</p><p><b>Importante:</b> los ejes E00–E44 no se encuentran definidos como entidades IfcGrid en este archivo. La asignación espacial se validará con el plano.</p></div>
+<div class="side-note"><b>Correspondencia inicial</b><p>La clasificación P02 y P05 se obtiene de nombres que aparecen en el IFC. Otros elementos permanecen sin asignación para evitar clasificaciones incorrectas. No equivale a vincular el elemento a una actividad, eje o área.</p><p><b>Importante:</b> los ejes E00–E44 no se encuentran definidos como entidades IfcGrid en este archivo. La asignación espacial se validará con el plano.</p></div>
 <div class="warning">El archivo tiene aproximadamente 155 MB. La primera carga puede consumir bastante memoria. Para iPad prepararemos posteriormente una versión geométrica optimizada.</div>
 <div class="help" id="counts">Sin elementos procesados.</div></aside></div>
 </div>
@@ -47,9 +47,10 @@ function resize(){const w=$("viewer").clientWidth,h=$("viewer").clientHeight;cam
 window.addEventListener("resize",resize);resize();
 function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}animate();
 function classify(type,name){const nm=(name||"").toUpperCase();
- if(/ARRIOSTRE|DYWIDAG|TIRANTE|ANCLAJE.*PILOTE|PILOTE DE ARRIOSTRE/.test(nm))return "P05";
- if(type===WebIFC?.IFCPILE || type===WebIFC?.IFCCOLUMN)return "P05";
- if(type===WebIFC?.IFCSLAB || type===WebIFC?.IFCBEAM || /LOSA|VIGA|TABLERO|DEFENSA|FENDER/.test(nm))return "P02";
+ // Se identifican grupos por los nombres que existen en el IFC del usuario.
+ // Pilotes genéricos y vigas transversales no son necesariamente del P05 o P02.
+ if(/ARRIOSTRE|DYWIDAG|TIRANTE|W8\s*X\s*24/.test(nm))return "P05";
+ if(/DEFENSA|FENDER|LOSA|VIGA DE BORDE|PLATAFORMA|TABLERO/.test(nm))return "P02";
  return "OTHER";
 }
 function filter(){let visible=0;for(const m of meshes){m.visible=modelService==="ALL"||m.userData.service===modelService;if(m.visible)visible++} $("counts").textContent=meshes.length+" mallas procesadas · "+visible+" visibles · Modelo seleccionado en memoria local."}
