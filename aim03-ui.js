@@ -66,7 +66,7 @@
     if(b.dataset.aimService){serviceId=b.dataset.aimService;axisId=serviceId==='P05'?'E20':'E18';stageFilter='ALL';showScreen('services');refresh();}
     if(b.dataset.aimAxis){axisId=b.dataset.aimAxis;stageFilter='ALL';renderService();}
     if(b.dataset.aimGroup){stageFilter=b.dataset.aimGroup;renderService();}
-    if(b.dataset.aimModel){showScreen('ifc');$('ifcFrame').contentWindow?.postMessage({kind:'aim03.filter',service:b.dataset.aimModel},location.origin);}
+    if(b.dataset.screen==='ifc'||b.dataset.aimModel){const frame=$('ifcFrame'),service=b.dataset.aimModel||'ALL';if(!frame.getAttribute('src'))frame.src='modelo-ifc.html?servicio='+encodeURIComponent(service);else frame.contentWindow?.postMessage({kind:'aim03.filter',service},location.origin);if(b.dataset.aimModel)showScreen('ifc');}
   });
   $('homeCurveService').addEventListener('change',e=>{homeCurve=e.target.value;$('homeServiceCurve').innerHTML=chart(homeCurve)});
   window.addEventListener('message',e=>{
