@@ -71,8 +71,13 @@
   $('homeCurveService').addEventListener('change',e=>{homeCurve=e.target.value;$('homeServiceCurve').innerHTML=chart(homeCurve)});
   window.addEventListener('message',e=>{
     if(e.origin!==location.origin||e.data?.kind!=='aim03.ifc-selection')return;
-    const {service,name,expressID}=e.data;
-    $('ifcSelection').textContent='Elemento '+expressID+' · '+(name||'Sin nombre')+' · Vinculación sugerida '+service+'. Eje y actividad por validar.';
+    const {service,name,expressID,activity}=e.data;
+    const panel=$('ifcSelection');
+    panel.textContent='Elemento '+expressID+' · '+(name||'Sin nombre')+' · Servicio sugerido '+service+' · '+(activity||'Actividad por definir')+'. Eje por validar. ';
+    if(service==='P02'||service==='P05'){
+      const button=document.createElement('button');button.type='button';button.className='btn';
+      button.dataset.aimService=service;button.textContent='Abrir servicio '+service;panel.append(button);
+    }
   });
   refresh();
 })();
