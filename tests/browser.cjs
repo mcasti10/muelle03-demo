@@ -28,7 +28,7 @@ const {chromium}=require('playwright');
    await page.locator(`[data-module="${pkg}"]`).click();assert.equal(await page.locator('#fullAxisGrid button').count(),44);assert.equal(await page.locator('#fullAxisGrid button:not([disabled])').count(),applicable);
   }
   await page.locator('#fullAxisGrid [data-ax="E20"]').click();assert.match(await page.locator('#axisDetail').innerText(),/E20/);
-  assert.ok((await page.locator('#globalMetrics').innerText()).includes('AVANCE FÍSICO'));
+  assert.ok((await page.locator('#globalMetrics').innerText()).includes('AVANCE GLOBAL PONDERADO'));
   assert.ok(!(await page.locator('#globalMetrics').innerText()).includes('PRESUPUESTO'));
   const id='P05-E20-AR03';
   await page.locator('[data-screen="data"]').first().click();
