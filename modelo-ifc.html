@@ -53,6 +53,21 @@ function classify(type,name){const nm=(name||"").toUpperCase();
  if(/DEFENSA|FENDER|LOSA|VIGA DE BORDE|PLATAFORMA|TABLERO/.test(nm))return "P02";
  return "OTHER";
 }
+function suggestedActivity(name,service){
+ const n=(name||"").toUpperCase();
+ if(service==="P05"){
+  if(/DYWIDAG/.test(n))return "AR11 · Anclajes DYWIDAG";
+  if(/W8\\s*X\\s*24/.test(n))return "AR14 · Montaje de viga metálica";
+  if(/TIRANTE/.test(n))return "AR15 · Montaje de tirantes";
+  return "P05 · Actividad específica pendiente de vinculación";
+ }
+ if(service==="P02"){
+  if(/DEFENSA|FENDER/.test(n))return "PL15–PL26 · Bloque y montaje de defensa";
+  if(/LOSA/.test(n))return "PL02–PL06 · Reparación de losa";
+  return "P02 · Actividad específica pendiente de vinculación";
+ }
+ return "Sin asociación de actividad";
+}
 function filter(){let visible=0;for(const m of meshes){m.visible=modelService==="ALL"||m.userData.service===modelService;if(m.visible)visible++} $("counts").textContent=meshes.length+" mallas procesadas · "+visible+" visibles · Modelo seleccionado en memoria local."}
 $("service").addEventListener("change",e=>{modelService=e.target.value;filter()});
 window.addEventListener("message",e=>{if(e.origin!==location.origin)return;if(e.data?.kind==="aim03.filter"){const svc=e.data.service;modelService=["P02","P05","ALL","OTHER"].includes(svc)?svc:"ALL";$("service").value=modelService;filter()}});
@@ -79,10 +94,10 @@ function showSelection(mesh){
  try{const line=api.GetLine(modelID,id);name=label(line?.Name)||name;globalId=label(line?.GlobalId)||"";entityType=line?.type||entityType}catch(_){}
  $("selected").innerHTML="";
  const dl=document.createElement("dl");
- for(const [k,v] of [["Nombre",name||"Sin nombre"],["IFC Express ID",id],["GUID",globalId||"No disponible"],["Código de tipo IFC",entityType],["Servicio sugerido",mesh.userData.service],["Asignación a eje o área","Pendiente de validación"]]){
+ for(const [k,v] of [["Nombre",name||"Sin nombre"],["IFC Express ID",id],["GUID",globalId||"No disponible"],["Código de tipo IFC",entityType],["Servicio sugerido",mesh.userData.service],["Actividad relacionada",suggestedActivity(name,mesh.userData.service)],["Asignación a eje o área","Pendiente de validación"]]){
   const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=String(v);dl.append(dt,dd);
  }$("selected").append(dl);
- window.parent.postMessage({kind:"aim03.ifc-selection",service:mesh.userData.service,expressID:id,guid:globalId,name:name||""},location.origin);
+ window.parent.postMessage({kind:"aim03.ifc-selection",service:mesh.userData.service,expressID:id,guid:globalId,name:name||"",activity:suggestedActivity(name,mesh.userData.service)},location.origin);
 }
 let down=null;
 renderer.domElement.addEventListener("pointerdown",e=>{down={x:e.clientX,y:e.clientY}});
