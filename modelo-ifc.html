@@ -57,7 +57,7 @@ function suggestedActivity(name,service){
  const n=(name||"").toUpperCase();
  if(service==="P05"){
   if(/DYWIDAG/.test(n))return "AR11 · Anclajes DYWIDAG";
-  if(/W8\\s*X\\s*24/.test(n))return "AR14 · Montaje de viga metálica";
+  if(/W8\s*X\s*24/.test(n))return "AR14 · Montaje de viga metálica";
   if(/TIRANTE/.test(n))return "AR15 · Montaje de tirantes";
   return "P05 · Actividad específica pendiente de vinculación";
  }
