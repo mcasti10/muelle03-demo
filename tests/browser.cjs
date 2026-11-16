@@ -5,15 +5,25 @@ const {chromium}=require('playwright');
 (async()=>{
  const html=fs.readFileSync('index.html');
  // Se sirve bajo la misma subruta que Pages; no se modifica el documento para las pruebas.
- const server=http.createServer((req,res)=>{if(req.url==='/muelle03-demo/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html)}else if(req.url==='/muelle03-demo/edt-fisica.js'){res.setHeader('Content-Type','application/javascript; charset=utf-8');res.end(fs.readFileSync('edt-fisica.js'))}else{res.statusCode=404;res.end()}});
+ const server=http.createServer((req,res)=>{if(req.url==='/muelle03-demo/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html)}else if(['/muelle03-demo/edt-fisica.js','/muelle03-demo/aim03-ui.js'].includes(req.url)){res.setHeader('Content-Type','application/javascript; charset=utf-8');res.end(fs.readFileSync(req.url.split('/').pop()))}else{res.statusCode=404;res.end()}});
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  let browser;
  try{
   browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
   const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/muelle03-demo/`);
-  for(const name of ['matrix','process','model','contractor','data','photos']){await page.locator(`[data-screen="${name}"]`).first().click();assert.ok(await page.locator('#screen-'+name).isVisible())}
-  await page.locator('[data-screen="matrix"]').first().click();
+  for(const name of ['services','contractor','data']){await page.locator(`[data-screen="${name}"]`).first().click();assert.ok(await page.locator('#screen-'+name).isVisible())}
+  assert.equal(await page.locator('#serviceNav [data-aim-service]').count(),7);
+  assert.match(await page.locator('#screen-home').innerText(),/Arreglo de Infraestructura del Muelle 03/);
+  for(const name of ['matrix','process','model','photos']){await page.evaluate(n=>showScreen(n),name);assert.ok(await page.locator('#screen-'+name).isVisible())}
+  await page.locator('#screen-services').isVisible();
+  await page.evaluate(() => showScreen('services'));
+  await page.locator('#serviceNav [data-aim-service="P05"]').click();
+  assert.ok(await page.locator('#serviceActivities table tbody tr').count()>0);
+  await page.locator('#serviceNav [data-aim-service="P07"]').click();
+  assert.match(await page.locator('#serviceStats').innerText(),/Sin línea base/);
+  assert.match(await page.locator('#serviceActivities').innerText(),/No hay actividades/);
+  await page.evaluate(() => showScreen('matrix'));
   for(const [pkg,applicable] of [['P02',44],['P05',39]]){
    await page.locator(`[data-module="${pkg}"]`).click();assert.equal(await page.locator('#fullAxisGrid button').count(),44);assert.equal(await page.locator('#fullAxisGrid button:not([disabled])').count(),applicable);
   }
@@ -27,9 +37,9 @@ const {chromium}=require('playwright');
   assert.equal(await page.evaluate(id=>data.activities.find(a=>a.id===id).avance_real_pct,id),1);
   await upload(`id;avance_real_pct\n${id};0,5%`);await page.waitForFunction(id=>data.activities.find(a=>a.id===id).avance_real_pct===.5,id);
   await upload(`id,avance_real_pct\n${id},80\nP05-E20-AR04, `);await page.locator('#msg').filter({hasText:'Error:'}).waitFor();assert.equal(await page.evaluate(id=>data.activities.find(a=>a.id===id).avance_real_pct,id),.5);
-  await page.locator('[data-screen="matrix"]').first().click();await page.locator('#axisDetail [data-edit-activity="'+id+'"]').click();assert.equal(await page.locator('#editValue').inputValue(),'0.5');await page.locator('#cancelEdit').click();
-  await page.locator('[data-screen="process"]').first().click();assert.ok(await page.locator('#processTable td button').count()>400);
-  await page.locator('[data-screen="model"]').first().click();await page.locator('#modelService').selectOption('P05');
+  await page.evaluate(() => showScreen('matrix'));await page.locator('#axisDetail [data-edit-activity="'+id+'"]').click();assert.equal(await page.locator('#editValue').inputValue(),'0.5');await page.locator('#cancelEdit').click();
+  await page.evaluate(() => showScreen('process'));assert.ok(await page.locator('#processTable td button').count()>400);
+  await page.evaluate(() => showScreen('model'));await page.locator('#modelService').selectOption('P05');
   await page.locator('[data-model-mode="plan"]').click();await page.locator('[data-model-mode="gap"]').click();await page.locator('[data-view="top"]').click();await page.locator('#zoomIn').click();
   await page.locator('#weekSlider').fill('6');assert.equal(await page.evaluate(()=>week),6);
   await page.locator('#playBtn').click();await page.waitForFunction(()=>week>6);await page.locator('#playBtn').click();
