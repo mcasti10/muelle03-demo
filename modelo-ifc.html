@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>AIM03 · Modelo IFC</title>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"}}</script>
+<style>
+:root{--bg:#eef3f9;--ink:#152642;--sub:#657b99;--line:#d8e3f1;--blue:#255ee7;--green:#128660}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font:13px/1.5 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;color:var(--ink)}button,input,select{font:inherit}button{cursor:pointer}.shell{padding:16px;max-width:1600px;margin:auto}.heading{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:13px}.heading h1{font-size:20px;margin:0 0 4px}.muted{color:var(--sub);font-size:11px}.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:9px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}.toolbar select,.toolbar button,.toolbar label[for="ifcFile"]{border:1px solid #cfddef;border-radius:8px;background:white;padding:8px 12px;color:#2c507e;font-weight:700;font-size:12px}.toolbar label[for="ifcFile"]{background:var(--blue);border-color:var(--blue);color:#fff;cursor:pointer}.stage{display:grid;grid-template-columns:minmax(0,1fr) 275px;gap:12px}.viewer{position:relative;background:#e4ecf5;border:1px solid var(--line);border-radius:12px;overflow:hidden;min-height:470px;height:min(75vh,760px)}#canvas{display:block;width:100%;height:100%}.notice{position:absolute;left:16px;top:16px;max-width:400px;background:#ffffffef;padding:14px;border:1px solid #d6e0ed;border-radius:10px;font-size:12px;box-shadow:0 3px 20px #193b6210;pointer-events:none}.notice b{display:block;margin-bottom:5px}#progress{position:absolute;bottom:0;left:0;height:4px;background:#2d6cff;width:0;transition:width .2s}.side{background:white;border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}.side h2{font-size:14px;margin:0 0 12px}.detail{background:#f3f6fb;border-radius:9px;padding:12px;min-height:175px;word-break:break-word}.detail dl{margin:0}.detail dt{font-size:10px;color:var(--sub);margin-top:12px}.detail dd{font-size:12px;margin:3px 0 0;font-weight:700}.side-note{font-size:11px;color:#6c7f98;border-top:1px solid var(--line);padding-top:13px;margin-top:18px}.pill{padding:5px 9px;border-radius:8px;background:#e5efff;color:#2764cc;font-size:11px;font-weight:700}.pill.p05{background:#e7f7ef;color:#12885b}#fileInfo{padding-left:4px}.bar{width:100%;height:5px;background:#dce7f5;border-radius:5px;overflow:hidden;margin-top:9px}.bar i{height:100%;background:#2872eb;display:block;width:0}.help{font-size:11px;color:#6981a1;margin-top:12px}.warning{padding:10px;border-radius:8px;background:#fff5e6;color:#895a20;font-size:11px;line-height:1.6;margin-top:10px}
+@media(max-width:850px){.stage{grid-template-columns:1fr}.viewer{height:65vh;min-height:370px}.side{max-height:320px;overflow:auto}}
+</style></head>
+<body><div class="shell">
+<div class="heading"><div><h1>Modelo 3D del AIM03</h1><div class="muted">Visor de geometría IFC. Selección de elementos y asociación inicial con P02 y P05.</div></div><span class="pill">Archivo local · Sin publicación</span></div>
+<div class="toolbar"><input id="ifcFile" type="file" accept=".ifc" hidden>
+<label for="ifcFile">Seleccionar modelo IFC</label><span id="fileInfo" class="muted">Selecciona IA-1020-0194.IVA.LO1.D_FEDERADO.ifc desde tu equipo</span>
+<select id="service" aria-label="Filtrar por servicio"><option value="ALL">Todos los elementos</option><option value="P02">P02 · Plataforma</option><option value="P05">P05 · Pilotes de arriostre</option><option value="OTHER">Sin correspondencia aún</option></select>
+<button id="fit" type="button">Encajar modelo</button><button id="top" type="button">Vista superior</button><button id="iso" type="button">Isométrica</button></div>
+<div class="stage"><div class="viewer" id="viewer"><div id="canvas"></div><div class="notice" id="notice"><b>Modelo sin cargar</b>Elige el archivo IFC desde tu computadora. Se procesará en el navegador y no se enviará al repositorio.</div><div id="progress"></div></div>
+<aside class="side"><h2>Elemento seleccionado</h2><div class="detail" id="selected"><span class="muted">Haz clic sobre una losa, viga o pilote una vez cargado el IFC.</span></div>
+<div class="side-note"><b>Correspondencia inicial</b><p>La clasificación P02 y P05 se obtiene de la clase y el nombre IFC. No equivale a vincular el elemento a una actividad, eje o área.</p><p><b>Importante:</b> los ejes E00–E44 no se encuentran definidos como entidades IfcGrid en este archivo. La asignación espacial se validará con el plano.</p></div>
+<div class="warning">El archivo tiene aproximadamente 155 MB. La primera carga puede consumir bastante memoria. Para iPad prepararemos posteriormente una versión geométrica optimizada.</div>
+<div class="help" id="counts">Sin elementos procesados.</div></aside></div>
+</div>
+<script type="module">
+import * as THREE from "three";
+import {OrbitControls} from "three/addons/controls/OrbitControls.js";
+const WEB_IFC_VERSION="0.0.74";
+const CDN="https://cdn.jsdelivr.net/npm/web-ifc@"+WEB_IFC_VERSION+"/";
+const $=id=>document.getElementById(id);
+const scene=new THREE.Scene();scene.background=new THREE.Color("#e9f1fa");
+const camera=new THREE.PerspectiveCamera(48,1,.02,8000);camera.up.set(0,0,1);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false,powerPreference:"high-performance"});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));renderer.outputColorSpace=THREE.SRGBColorSpace;
+$("canvas").appendChild(renderer.domElement);
+const controls=new OrbitControls(camera,renderer.domElement);controls.enableDamping=true;controls.dampingFactor=.12;controls.minDistance=1;
+const hemi=new THREE.HemisphereLight(0xffffff,0x8394aa,2.5);scene.add(hemi);
+const sunlight=new THREE.DirectionalLight(0xffffff,2.0);sunlight.position.set(90,-80,160);scene.add(sunlight);
+const grid=new THREE.GridHelper(200,40,0xc1d4e7,0xd6e1ec);grid.rotation.x=Math.PI/2;grid.material.transparent=true;grid.material.opacity=.45;scene.add(grid);
+const group=new THREE.Group();scene.add(group);
+const raycaster=new THREE.Raycaster(),pointer=new THREE.Vector2();
+let api=null,modelID=null,selectedMesh=null,meshes=[],bounds=null,modelService=new URLSearchParams(location.search).get("servicio")||"ALL";
+$("service").value=["ALL","P02","P05","OTHER"].includes(modelService)?modelService:"ALL";
+let working=false,WebIFC=null;
+function message(title,description,progress){
+ $("notice").style.display="block";$("notice").innerHTML="<b></b><span></span>";$("notice").querySelector("b").textContent=title;$("notice").querySelector("span").textContent=description;
+ $("progress").style.width=(progress||0)+"%";
+}
+function resize(){const w=$("viewer").clientWidth,h=$("viewer").clientHeight;camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false)}
+window.addEventListener("resize",resize);resize();
+function animate(){requestAnimationFrame(animate);controls.update();renderer.render(scene,camera)}animate();
+function classify(type,name){const nm=(name||"").toUpperCase();
+ if(/ARRIOSTRE|DYWIDAG|TIRANTE|ANCLAJE.*PILOTE|PILOTE DE ARRIOSTRE/.test(nm))return "P05";
+ if(type===WebIFC?.IFCPILE || type===WebIFC?.IFCCOLUMN)return "P05";
+ if(type===WebIFC?.IFCSLAB || type===WebIFC?.IFCBEAM || /LOSA|VIGA|TABLERO|DEFENSA|FENDER/.test(nm))return "P02";
+ return "OTHER";
+}
+function filter(){let visible=0;for(const m of meshes){m.visible=modelService==="ALL"||m.userData.service===modelService;if(m.visible)visible++} $("counts").textContent=meshes.length+" mallas procesadas · "+visible+" visibles · Modelo seleccionado en memoria local."}
+$("service").addEventListener("change",e=>{modelService=e.target.value;filter()});
+window.addEventListener("message",e=>{if(e.origin!==location.origin)return;if(e.data?.kind==="aim03.filter"){const svc=e.data.service;modelService=["P02","P05","ALL","OTHER"].includes(svc)?svc:"ALL";$("service").value=modelService;filter()}});
+function view(mode){
+ if(!bounds)return;const size=bounds.getSize(new THREE.Vector3()),r=Math.max(size.x,size.y,size.z,10);
+ controls.target.set(0,0,0);camera.up.set(0,0,1);
+ if(mode==="top")camera.position.set(0,-.001,r*1.65);
+ else camera.position.set(r*.72,-r*.84,r*.62);
+ camera.near=Math.max(.01,r/10000);camera.far=Math.max(300,r*50);camera.updateProjectionMatrix();controls.update();
+}
+$("fit").onclick=()=>view("iso");$("iso").onclick=()=>view("iso");$("top").onclick=()=>view("top");
+function clear(){
+ selectedMesh=null;
+ for(const m of meshes){m.geometry.dispose();m.material.dispose()} meshes=[];group.clear();
+ if(api&&modelID!==null){try{api.CloseModel(modelID)}catch(_){}}
+ api=null;modelID=null;bounds=null;$("selected").innerHTML='<span class="muted">Selecciona un elemento en la vista 3D.</span>';
+}
+function label(name){return name?.value??name??""}
+function showSelection(mesh){
+ if(selectedMesh){selectedMesh.material.emissive?.setHex(0x000000);}
+ selectedMesh=mesh;mesh.material.emissive?.setHex(0x334400);
+ const id=mesh.userData.expressID;
+ let name=mesh.userData.name,globalId="";let entityType=mesh.userData.ifcType;
+ try{const line=api.GetLine(modelID,id);name=label(line?.Name)||name;globalId=label(line?.GlobalId)||"";entityType=line?.type||entityType}catch(_){}
+ $("selected").innerHTML="";
+ const dl=document.createElement("dl");
+ for(const [k,v] of [["Nombre",name||"Sin nombre"],["IFC Express ID",id],["GUID",globalId||"No disponible"],["Código de tipo IFC",entityType],["Servicio sugerido",mesh.userData.service],["Asignación a eje o área","Pendiente de validación"]]){
+  const dt=document.createElement("dt"),dd=document.createElement("dd");dt.textContent=k;dd.textContent=String(v);dl.append(dt,dd);
+ }$("selected").append(dl);
+ window.parent.postMessage({kind:"aim03.ifc-selection",service:mesh.userData.service,expressID:id,guid:globalId,name:name||""},location.origin);
+}
+let down=null;
+renderer.domElement.addEventListener("pointerdown",e=>{down={x:e.clientX,y:e.clientY}});
+renderer.domElement.addEventListener("pointerup",e=>{
+ if(!down||Math.hypot(e.clientX-down.x,e.clientY-down.y)>6){down=null;return}down=null;
+ const rect=renderer.domElement.getBoundingClientRect();pointer.x=(e.clientX-rect.left)/rect.width*2-1;pointer.y=-(e.clientY-rect.top)/rect.height*2+1;
+ raycaster.setFromCamera(pointer,camera);const hits=raycaster.intersectObjects(meshes.filter(m=>m.visible),false);if(hits.length)showSelection(hits[0].object);
+});
+$("ifcFile").addEventListener("change",async e=>{
+ const file=e.target.files?.[0];if(!file||working)return;
+ if(!/\.ifc$/i.test(file.name)){message("Archivo inválido","Selecciona un archivo .ifc",0);return}
+ working=true;clear();$("fileInfo").textContent=file.name+" · "+(file.size/1048576).toFixed(1)+" MB";
+ try{
+  message("Preparando el visor","Descargando el motor IFC y cargando la geometría local…",7);
+  WebIFC ||= await import(CDN+"web-ifc-api.js");
+  api=new WebIFC.IfcAPI();api.SetWasmPath(CDN,true);await api.Init();
+  message("Leyendo IFC","Abriendo geometría real del archivo. Este paso puede requerir memoria.",20);
+  const bytes=new Uint8Array(await file.arrayBuffer());
+  modelID=api.OpenModel(bytes,{COORDINATE_TO_ORIGIN:true});if(modelID<0)throw Error("El motor no pudo abrir el IFC");
+  message("Construyendo vista 3D","Generando mallas, colores e identificadores de los elementos.",40);
+  const cache=new Map(),maxMeshes=35000;let skipped=0;
+  api.StreamAllMeshes(modelID,flat=>{
+   if(meshes.length>=maxMeshes){skipped++;return}
+   const expressID=flat.expressID;let line=null;try{line=api.GetLine(modelID,expressID)}catch(_){}
+   const name=label(line?.Name)||"";
+   const type=line?.type??0,service=classify(type,name);
+   for(let i=0;i<flat.geometries.size();i++){
+    if(meshes.length>=maxMeshes){skipped++;break}
+    const pg=flat.geometries.get(i),geom=api.GetGeometry(modelID,pg.geometryExpressID);
+    try{
+     const verts=api.GetVertexArray(geom.GetVertexData(),geom.GetVertexDataSize());
+     const indices=api.GetIndexArray(geom.GetIndexData(),geom.GetIndexDataSize());
+     if(!verts.length||!indices.length)continue;
+     const xyz=new Float32Array(verts.length/2),normal=new Float32Array(verts.length/2);
+     for(let v=0;v<verts.length/6;v++){xyz.set(verts.subarray(v*6,v*6+3),v*3);normal.set(verts.subarray(v*6+3,v*6+6),v*3)}
+     const buffer=new THREE.BufferGeometry();buffer.setAttribute("position",new THREE.BufferAttribute(xyz,3));buffer.setAttribute("normal",new THREE.BufferAttribute(normal,3));buffer.setIndex(new THREE.BufferAttribute(new Uint32Array(indices),1));
+     const c=pg.color;const baseColor=new THREE.Color().setRGB(c.x,c.y,c.z,THREE.LinearSRGBColorSpace);
+     const material=new THREE.MeshStandardMaterial({color:baseColor,metalness:.05,roughness:.82,side:THREE.DoubleSide});
+     const mesh=new THREE.Mesh(buffer,material);mesh.matrix.fromArray(pg.flatTransformation);mesh.matrixAutoUpdate=false;
+     mesh.userData={expressID,name,ifcType:type,service};mesh.visible=modelService==="ALL"||modelService===service;
+     group.add(mesh);meshes.push(mesh);
+    }finally{try{geom.delete()}catch(_){}}
+   }
+  });
+  if(!meshes.length)throw Error("El archivo no produjo mallas. Comprueba que contiene representaciones 3D.");
+  const absoluteBox=new THREE.Box3().setFromObject(group),center=absoluteBox.getCenter(new THREE.Vector3());
+  group.position.sub(center);group.updateMatrixWorld(true);
+  bounds=new THREE.Box3().setFromObject(group);
+  grid.position.z=bounds.min.z-0.25;
+  view("iso");filter();
+  $("notice").style.display="none";$("progress").style.width="100%";
+  $("counts").textContent+=skipped?" · "+skipped+" mallas omitidas por límite de rendimiento.":"";
+ }catch(err){console.error(err);message("No se pudo cargar el IFC",String(err?.message||err)+". Comprueba tu conexión y vuelve a intentarlo.",0)}
+ finally{working=false;e.target.value=""}
+});
+</script></body></html>
