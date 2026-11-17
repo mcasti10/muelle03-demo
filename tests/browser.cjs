@@ -53,7 +53,7 @@ const {chromium}=require('playwright');
   assert.match(await page.locator('#frontDetail .aim-source-table').innerText(),/ID \d+/);
   await page.locator('[data-aim-section="seguimiento"]').click();
   assert.ok(await page.locator('#serviceFollowupView').isVisible());
-  assert.match(await page.locator('#servicePpcChart').innerText(),/Sin historial PPC/);
+  assert.ok(await page.locator('#servicePpcChart svg').count()>0);
   await page.locator('#serviceNav [data-aim-service="P05"]').click();
   assert.match(await page.locator('#serviceTitle').innerText(),/P05/);
   await page.locator('[data-aim-section="frentes"]').click();
