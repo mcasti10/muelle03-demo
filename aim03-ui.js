@@ -125,27 +125,112 @@
     renderProcessOverview();
     renderFronts();
   }
+
+  const src=()=>window.AIM03_XML;
+  const srcName=id=>src()?.names?.[id]||"Actividad sin título";
+  const fmtSource=v=>Number.isFinite(v)?v.toFixed(0)+"%":"—";
+  function circle(name,phys,pc){
+    const v=Math.max(0,Math.min(100,Number(phys)||0)),diff=Math.abs(Number(pc)-Number(phys))>=20;
+    return '<div class="aim-process-item"><div class="aim-progress-ring" style="--aim-p:'+v+'%"><span>'+fmtSource(phys)+'</span></div>'+
+      '<b>'+esc(name)+'</b><small>Físico XML: '+fmtSource(phys)+'<br>Avance cronograma: '+fmtSource(pc)+(diff?'<br><span class="data-warning">Indicadores diferentes</span>':'')+'</small></div>';
+  }
+  function renderProcessOverview(){
+    const target=$("serviceProcessOverview"),doc=src();
+    if(!doc){target.innerHTML=empty("Cargando información de actividades desde los XML verificados.");return}
+    if(!["P02","P05"].includes(selected)){target.innerHTML=empty("No tenemos cronograma XML de este servicio.");return}
+    const all=doc.summary[selected]||[];
+    const filtered=selected==="P02"?
+      all.filter(t=>/DESMONTAJE DE RIELES|DESMONTAJE DE FENDERS|REPARACIÓN DE VIGAS DE BORDE LADO TIERRA|MOV\. DE TIERRAS Y LOSA|REPARACIÓN DE VIGAS DE BORDE LADO MAR|REPARACIÓN DE BLOQUES DE DEFENSA, DESMONTAJE|REPOSICIÓN DE LÍNEAS FERROVIARIAS|RED DE BANCODUCTOS|TORRE DE TRANSFERENCIA/i.test(srcName(t[1]))):
+      all.filter(t=>t[4]===3&&/^SECTOR\s+[1-5](?:\b|[- ])/i.test(srcName(t[1])));
+    target.innerHTML='<div class="aim-source-banner">Valores reportados en XML con fecha de estado '+doc.status[selected]+'. Los porcentajes físicos y los del cronograma se muestran por separado. No representan aceptación técnica.</div>'+
+      (filtered.length?'<div class="aim-process-grid">'+filtered.map(t=>circle(srcName(t[1]),t[3],t[2])).join("")+'</div>':empty("Sin etapas agrupadas directamente en este XML."));
+  }
   const componentMap={
-    P02:[["bloques","Bloques de defensa","Control por bloque y sus actividades"],["losa","Losa superior","Control por áreas"],["vigas","Vigas de borde","Lado tierra y lado mar"],["rieles","Rieles","Control por tramos"]],
-    P05:[["arriostres","Pilotes de arriostre","Control por eje y componentes"]],
-    P07:[["revestimiento","Revestimiento sobre tablero","Control futuro por áreas"]]
+    P02:[
+      ["bloques","Bloques de defensa","21 bloques identificados por eje"],
+      ["losa","Losa superior","21 sectores L1–L21 del XML"],
+      ["viga_tierra","Vigas de borde tierra","21 sectores del XML"],
+      ["viga_mar","Vigas de borde mar","21 sectores del XML"],
+      ["rieles","Línea ferroviaria","Sin correspondencia por eje validada"]
+    ],
+    P05:[["arriostres","Pilotes de arriostre","39 ejes de intervención del XML"]],
+    P07:[["revestimiento","Revestimiento sobre tablero","Sin cronograma publicado"]]
   };
+  function sourceFrontLabel(kind,num){
+    return kind==="bloques"||kind==="arriostres"?"E"+String(num).padStart(2,"0"):
+      kind==="losa"?"L"+num:"Sector "+num;
+  }
+  const typeLink={0:"FF",1:"FS",2:"SF",3:"SS"};
+  function showFrontDetail(doc,key,front){
+    const [num,rootID,complete,physical,templateId,stages,progressHex,external]=front;
+    const template=doc.types[templateId]||{names:[],pred:[],offsets:[]};
+    const title=sourceFrontLabel(key,num);
+    const stageCards=stages.map(s=>circle(srcName(s[0]),s[2],s[1])).join("");
+    const activities=template.names.map((nm,ix)=>{
+      const pc=parseInt(progressHex.slice(4*ix,4*ix+2),16),
+            ph=parseInt(progressHex.slice(4*ix+2,4*ix+4),16),
+            taskID=rootID+template.offsets[ix];
+      const internal=(template.pred[ix]||[]).map(p=>{
+        const targetId=rootID+template.offsets[p[0]];
+        return 'ID '+targetId+' ('+(typeLink[p[1]]||p[1])+')';
+      });
+      const ext=external.filter(p=>p[0]===ix).map(p=>{
+        const meta=doc.external[p[1]],refLabel=meta&&meta[0]!==null?srcName(meta[0]):"actividad externa";
+        return 'UID '+p[1]+' · '+refLabel+' ('+(typeLink[p[2]]||p[2])+')';
+      });
+      const preds=[...internal,...ext];
+      const discrepancy=pc>=100&&ph<100;
+      return '<tr><td><b>'+esc(srcName(nm))+'</b><small>Actividad ID '+taskID+' · cronograma Project XML</small></td>'+
+        '<td>'+fmtSource(pc)+'</td><td class="'+(discrepancy?'data-warning':'')+'">'+fmtSource(ph)+(discrepancy?'<small>Verificar diferencia</small>':'')+'</td>'+
+        '<td>'+esc(preds.join('; ')||"Sin predecesoras registradas")+'</td></tr>';
+    }).join("");
+    return '<div class="aim-front-head"><h4>'+title+' · Seguimiento al '+esc(doc.status[selected])+'</h4>'+
+      '<p>Avance del cronograma '+fmtSource(complete)+' · Avance físico reportado '+fmtSource(physical)+'</p>'+
+      '<p>La estructura de dependencias procede del XML. Un 100% físico no certifica liberación técnica.</p></div>'+
+      '<h4 style="font-size:13px;margin:15px 0 10px">Etapas del frente</h4>'+
+      '<div class="aim-process-grid">'+stageCards+'</div>'+
+      '<h4 style="font-size:13px;margin:17px 0 10px">Actividades y predecesoras</h4>'+
+      '<div class="aim-scroll"><table class="aim-source-table"><thead><tr><th>Actividad</th><th>Avance del cronograma</th><th>Avance físico XML</th><th>Predecesoras</th></tr></thead><tbody>'+
+      activities+'</tbody></table></div>';
+  }
   function renderFronts(){
-    const list=componentMap[selected]||[];
-    const container=$("frontComponents");
-    container.innerHTML=list.length?list.map(c=>'<button type="button" class="aim-front-card '+(component===c[0]?"sel":"")+'" data-aim-component="'+esc(c[0])+'"><b>'+esc(c[1])+'</b><small>'+esc(c[2])+'</small></button>').join(""):empty("Los frentes de este servicio se definirán según su EDT aprobada.");
+    const list=componentMap[selected]||[],doc=src();
+    $("frontComponents").innerHTML=list.length?list.map(c=>
+      '<button type="button" class="aim-front-card '+(component===c[0]?"sel":"")+'" data-aim-component="'+esc(c[0])+'"><b>'+esc(c[1])+'</b><small>'+esc(c[2])+'</small></button>').join(""):
+      empty("Sin categorías de frente definidas para este servicio.");
     const label=list.find(c=>c[0]===component);
     $("frontDetailTitle").textContent=label?label[1]:"Selecciona un componente";
-    $("frontDetail").innerHTML=label?'<div class="aim-empty">Estructura preparada para vincular el mapa, las actividades y las tarjetas del componente «'+esc(label[1])+'». No se han asignado porcentajes ni estados ficticios de frentes.</div>':
-      '<div class="aim-empty">Elige un frente o componente para continuar con el diseño del tercer nivel.</div>';
+    if(!label){$("frontDetail").innerHTML=empty("Selecciona el frente que deseas consultar.");return}
+    if(!doc){$("frontDetail").innerHTML=empty("Cargando porcentajes y predecesoras de los archivos XML.");return}
+    const kind=component==="arriostres"?"ejes":component,items=doc[selected]?.[kind]||[];
+    if(!items.length){
+      const isRail=selected==="P02"&&kind==="rieles";
+      const rail=(doc.summary.P02||[]).filter(x=>/REPOSICIÓN DE LÍNEAS FERROVIARIAS|DESMONTAJE DE RIELES/.test(srcName(x[1])));
+      $("frontDetail").innerHTML=isRail&&rail.length?
+        '<div class="aim-source-banner">El XML informa avance del servicio ferroviario, pero no aporta una relación inequívoca entre sectores y ejes. No se dibuja un mapa supuesto.</div><div class="aim-process-grid">'+rail.map(t=>circle(srcName(t[1]),t[3],t[2])).join("")+'</div>':
+        empty("No existe una relación espacial validada para este componente.");
+      return;
+    }
+    const isAxis=kind==="bloques"||kind==="ejes",sourceNote=isAxis?
+      "Selección longitudinal por eje identificado en XML; no equivale todavía a una geometría 2D o IFC validada.":
+      "La numeración de los sectores procede del XML. No se ha asignado cada sector a los ejes E00–E44.";
+    const chosen=items.find(f=>f[0]===frontNum);
+    $("frontDetail").innerHTML='<div class="aim-front-note">'+esc(sourceNote)+' · Corte de actividades '+doc.status[selected]+'.</div>'+
+      '<div class="aim-front-picker">'+items.map(f=>{
+        const id=sourceFrontLabel(kind,f[0]),sel=chosen?.[0]===f[0];
+        return '<button type="button" data-aim-front="'+f[0]+'" class="'+(sel?'sel':'')+'" title="Avance físico XML '+f[3]+'%">'+
+          '<b>'+esc(id)+'</b><span>'+fmtSource(f[3])+'</span></button>';
+      }).join("")+'</div>'+
+      (chosen?showFrontDetail(doc,kind,chosen):'<div class="aim-empty" style="margin-top:14px">Selecciona un eje o sector para consultar sus etapas, porcentajes por actividad y predecesoras.</div>');
   }
   function refresh(){renderHome();renderService()}
   window.aim03Refresh=refresh;
   document.addEventListener("click",e=>{
     const btn=e.target.closest("button");if(!btn)return;
-    if(btn.dataset.aimService){selected=btn.dataset.aimService;section="seguimiento";component=null;showScreen("services");refresh();}
-    if(btn.dataset.aimSection){section=btn.dataset.aimSection;renderService();}
-    if(btn.dataset.aimComponent){component=btn.dataset.aimComponent;renderFronts();}
+    if(btn.dataset.aimService){selected=btn.dataset.aimService;section="seguimiento";component=null;frontNum=null;showScreen("services");refresh();}
+    if(btn.dataset.aimSection){section=btn.dataset.aimSection;if(section==="frentes"&&!component){component=selected==="P02"?"bloques":selected==="P05"?"arriostres":null;}renderService();}
+    if(btn.dataset.aimComponent){component=btn.dataset.aimComponent;frontNum=null;renderFronts();}
+    if(btn.dataset.aimFront){frontNum=Number(btn.dataset.aimFront);renderFronts();}
     if(btn.dataset.screen==="ifc"){const frame=$("ifcFrame");if(!frame.getAttribute("src"))frame.src="modelo-ifc.html";}
   });
   document.addEventListener("change",e=>{
