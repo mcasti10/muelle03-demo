@@ -105,6 +105,9 @@ function apply(input){
  }
  d.services.find(s=>s.id==="P05").description="39 frentes de arriostre (E01–E39), EDT sintética revisada.";
  d.services.find(s=>s.id==="P02").description="44 ejes de plataforma y 21 bloques con defensa. Tipologías de ejemplo; no aplicabilidad validada.";
+ if(!d.services.some(x=>x.id==="P07"))d.services.push({id:"P07",name:"Revestimiento sobre tablero",short:"Revestimiento",contractor:"Por definir",description:"Alcance y línea base pendientes de definición. No se asignan avances ni cantidades supuestas."});
+ d.meta.proyecto="Arreglo de Infraestructura del Muelle 03 (AIM03)";
+ d.meta.version="V0.4-PRUEBAS";
  return d;
 }
 global.aplicarEdtFisica=apply;
