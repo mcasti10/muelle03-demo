@@ -18,7 +18,7 @@ const {chromium}=require('playwright');
  let browser;
  try{
   browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
-  const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+  const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
   await page.goto('http://127.0.0.1:'+server.address().port+'/muelle03-demo/');
   await page.locator('#packageCards .aim-card').first().waitFor();
   await page.waitForFunction(()=>window.AIM03_XML?.P02?.bloques?.length===21,undefined,{timeout:20000});
@@ -27,9 +27,21 @@ const {chromium}=require('playwright');
   assert.match(await page.locator('#packageCards [data-aim-service="P05"]').innerText(),/7\.0%/);
   assert.ok(await page.locator('#packageCards [data-aim-service="P01"]').innerText().then(x=>x.includes('—')));
   assert.equal(await page.locator('#packageCards .aim-card').count(),7);
-  // Jerarquía ejecutiva legible: el título del servicio y los indicadores ganan peso.
-  assert.ok(await page.locator('#packageCards .aim-card-title').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize))>=20);
-  assert.ok(await page.locator('#packageCards .aim-card-grid b').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize))>=23);
+  // Resumen ejecutivo equilibrado: jerarquía legible sin tarjetas sobredimensionadas.
+  const typography=await page.locator('#packageCards .aim-card').first().evaluate(card=>({
+    title:parseFloat(getComputedStyle(card.querySelector('.aim-card-title')).fontSize),
+    metric:parseFloat(getComputedStyle(card.querySelector('.aim-card-grid b')).fontSize)
+  }));
+  assert.ok(typography.title>=16&&typography.title<=19,'Título de servicio de escala equilibrada');
+  assert.ok(typography.metric>=19&&typography.metric<=22,'Indicadores legibles sin dominar la tarjeta');
+  const cardHeights=await page.locator('#packageCards .aim-card').evaluateAll(cards=>cards.map(card=>card.getBoundingClientRect().height));
+  assert.ok(cardHeights.every(height=>height<=280),'Siete tarjetas compactas en el resumen de escritorio');
+  const gridColumns=()=>page.locator('#packageCards').evaluate(el=>getComputedStyle(el).gridTemplateColumns.split(' ').length);
+  assert.equal(await gridColumns(),4);
+  for(const [width,columns] of [[1200,3],[900,2],[390,1]]){
+    await page.setViewportSize({width,height:1000});assert.equal(await gridColumns(),columns);
+  }
+  await page.setViewportSize({width:1440,height:1000});
   const verifyMatrix=async(axisCount)=>{
     const matrix=page.locator('#frontDetail .aim-activity-matrix');
     const headings=await matrix.locator('thead th').allInnerTexts();
@@ -40,6 +52,23 @@ const {chromium}=require('playwright');
     assert.ok(names.length>20,'Una fila por actividad del cronograma');
     assert.ok(names.every(n=>n.trim().length>5&&!/^A\d{2}$/.test(n.trim())),'Nombres de actividades completos en la primera columna');
     assert.equal(await matrix.locator('thead [data-aim-front]').count(),axisCount);
+    const density=await matrix.evaluate(table=>({
+      firstColumn:table.querySelector('thead th').getBoundingClientRect().width,
+      axes:[...table.querySelectorAll('tbody tr:first-child td')].map(el=>el.getBoundingClientRect().width),
+      rows:[...table.querySelectorAll('tbody tr')].map(el=>el.getBoundingClientRect().height),
+      scrollHeight:table.closest('.aim-matrix-wrap').getBoundingClientRect().height,
+      horizontalOverflow:table.closest('.aim-matrix-wrap').scrollWidth>table.closest('.aim-matrix-wrap').clientWidth
+    }));
+    assert.ok(density.firstColumn>=200&&density.firstColumn<=250,'Actividad visible en una columna proporcionada');
+    assert.ok(density.axes.every(width=>width>=40&&width<=54),'Columnas de eje compactas');
+    assert.ok(density.rows.every(height=>height>=28&&height<=50),'Filas densas y legibles, incluido texto en dos líneas');
+    assert.ok(density.scrollHeight<=460,'La matriz permite monitorear varias actividades en una altura acotada');
+    assert.ok(density.horizontalOverflow,'Se conserva desplazamiento horizontal para todos los ejes');
+    const labels=await matrix.locator('tbody tr > th:first-child').evaluateAll(headings=>headings.map(th=>({
+      full:th.querySelector('b')?.textContent.trim()||'',title:th.getAttribute('title')||''
+    })));
+    assert.ok(labels.every(label=>label.full&&label.title.includes(label.full)),'El tooltip conserva el nombre completo aunque se limite a dos líneas');
+
   };
   const verifySheet=async(service,kind,axis)=>{
     const expected=await page.evaluate(({service,kind,axis})=>{
@@ -96,6 +125,11 @@ const {chromium}=require('playwright');
   assert.match(await page.locator('#frontDetailTitle').innerText(),/Bloques de defensa/);
   assert.equal(await page.locator('#frontDetail .aim-front-picker [data-aim-front]').count(),44);
   await verifyMatrix(44);
+  await page.setViewportSize({width:390,height:844});
+  const mobileColumnWidth=await page.locator('#frontDetail .aim-activity-matrix thead th').first().evaluate(el=>el.getBoundingClientRect().width);
+  assert.ok(mobileColumnWidth>=150&&mobileColumnWidth<=180,'Primera columna proporcionada en móvil');
+  await page.setViewportSize({width:1440,height:1000});
+
   assert.match(await page.locator('#frontDetail .aim-activity-matrix tbody tr').first().locator('td').nth(2).innerText(),/—/);
   assert.equal(await page.locator('#frontDetail .aim-activity-matrix tbody [data-aim-front="3"]').count(),0);
   // E10/E12/E36 tienen plantillas sin las dos primeras tareas: no alinear por posición A01.
@@ -170,6 +204,6 @@ const {chromium}=require('playwright');
   await page.evaluate(()=>showScreen('matrix'));
   assert.equal(await page.locator('#fullAxisGrid button').count(),44);
   assert.deepEqual(errors,[]);
-  console.log('OK: tarjetas legibles, matrices actividad × eje 44/39, selección de cabecera/celda, fichas enfocadas con barras físicas XML, predecesoras, navegación y motor previo disponible.');
+  console.log('OK: resumen equilibrado y adaptable, matrices densas actividad × eje 44/39, selección de cabecera/celda, fichas enfocadas con barras físicas XML, predecesoras, navegación y motor previo disponible.');
  }finally{await browser?.close();await new Promise(r=>server.close(r))}
 })().catch(e=>{console.error(e);process.exitCode=1});

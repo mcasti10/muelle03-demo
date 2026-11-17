@@ -286,7 +286,7 @@
         return '<td class="'+cls+(frontNum===f[0]?' is-selected':'')+'">'+
           '<button type="button" data-aim-front="'+f[0]+'" data-aim-activity="'+esc(row.key)+'" aria-controls="aimFrontSheet" title="'+esc(name)+'. Físico: '+physical+'%, cronograma: '+reported+'%. Abrir ficha." aria-label="'+esc(sourceFrontLabel(kind,f[0])+' · '+name+' · '+physical+'% físico')+'">'+symbol+'</button></td>';
       }).join("");
-      return '<tr><th scope="row"><b>'+esc(name)+'</b><small>Actividad '+String(index+1).padStart(2,"0")+(row.occurrence>1?' · Ocurrencia '+row.occurrence:'')+'</small></th>'+cells+'</tr>';
+      return '<tr><th scope="row" title="'+esc(name)+'"><b>'+esc(name)+'</b><small>Actividad '+String(index+1).padStart(2,"0")+(row.occurrence>1?' · Ocurrencia '+row.occurrence:'')+'</small></th>'+cells+'</tr>';
     }).join("");
     return '<div class="aim-matrix-header">Matriz de actividades por eje · '+documented.length+' frentes con información</div>'+
       '<p class="aim-matrix-foot">Actividades del cronograma en filas y ejes, paños o tramos en columnas. Selecciona un eje o una casilla para abrir su ficha de avance y predecesoras. ✓ indica 100% físico reportado, no aceptación técnica; — indica que no existe un dato individual equivalente en la fuente.</p>'+
