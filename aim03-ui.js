@@ -224,6 +224,8 @@
     return '<div class="aim-front-head"><h4>'+title+' · Seguimiento al '+esc(doc.status[selected])+'</h4>'+
       '<p>Avance del cronograma '+fmtSource(complete)+' · Avance físico reportado '+fmtSource(physical)+'</p>'+
       '<p>La estructura de dependencias procede del XML. Un 100% físico no certifica liberación técnica.</p></div>'+
+      (selected==="P02"&&key==="bloques"&&conflictingFenderStage(front)?
+        '<div class="aim-no-map"><b>Inconsistencia del cronograma:</b> el resumen del bloque indica 100% físico, pero la etapa «Montaje y colocación de nuevos fender systems» tiene avance físico inferior a 100%. Verificar antes de considerarlo concluido.</div>':'')+
       '<h4 style="font-size:13px;margin:15px 0 10px">Etapas del frente</h4>'+
       '<div class="aim-process-grid">'+stageCards+'</div>'+
       '<h4 style="font-size:13px;margin:17px 0 10px">Actividades y predecesoras</h4>'+
@@ -231,6 +233,11 @@
       activities+'</tbody></table></div>';
   }
 
+  function conflictingFenderStage(front){
+    if(!front||front[1]==null||front[3]!==100)return false;
+    const mount=(front[5]||[]).find(stage=>/MONTAJE Y COLOCACIÓN DE NUEVOS FENDER SYSTEMS/i.test(srcName(stage[0])));
+    return !!(mount&&mount[2]<100);
+  }
   function frontStyle(v){
     const c=tone(v),map={
       green:["#1b975c","#e9f7ee","#116343"],
@@ -301,16 +308,20 @@
         "Los bloques pares E04–E44 tienen actividad individual en el XML. En impares se controla solo reparación, pero falta un avance individual por eje; se muestran con «—», no 0%. E02 tampoco tiene registro individual.":
         "Ejes de arriostre identificados en el XML. Su ubicación sigue pendiente de contrastarse con geometría IFC.":
       "«Paño» y «Tramo» son denominaciones de navegación basadas en la numeración del XML. La equivalencia con intervalos E00–E44 NO está comprobada; por eso no se ha inventado «Tramo 0–1» como ubicación.";
+    const inconsistency=selected==="P02"&&kind==="bloques"?
+      documented.filter(conflictingFenderStage).length:0;
     const chosen=items.find(f=>f[0]===frontNum);
     const warning=kind==="bloques"?
-      '<div class="aim-no-map"><b>Revisar paridad del alcance:</b> se adopta para el control que los ejes pares incluyen montaje de defensas nuevas y los impares solo reparación. El título de Sector 04 del XML indica lo contrario; los porcentajes y etapas individuales se toman únicamente del detalle existente en los pares.</div>':"";
+      '<div class="aim-no-map"><b>Revisar paridad del alcance:</b> se adopta para el control que los ejes pares incluyen montaje de defensas nuevas y los impares solo reparación. El título de Sector 04 del XML indica lo contrario. <b>'+inconsistency+' bloques</b> reportan 100% físico en su resumen, pero la etapa de montaje registra menos de 100%. Se marcan con ⚠ sin alterar los valores.</div>':"";
     $("frontDetail").innerHTML='<div class="aim-front-note">'+esc(sourceNote)+' · Corte XML '+niceDate(doc.status[selected])+'.</div>'+
       warning+legend()+
       '<div class="aim-front-picker">'+items.map(f=>{
         const num=f[0],id=sourceFrontLabel(kind,num),has=f[1]!=null,selected=chosen?.[0]===num;
         const title=has?"Avance físico XML "+fmtSource(f[3]):
           kind==="bloques"&&num%2===1?"Reparación sin registro de avance por eje":"Sin actividad individual identificada en XML";
-        return '<button type="button" data-aim-front="'+num+'" data-unknown="'+(has?0:1)+'" style="'+frontStyle(has?f[3]:null)+'" class="'+(selected?'sel':'')+'" title="'+esc(title)+'" aria-label="'+esc(id+' · '+title)+'">'+
+        const conflict=has&&kind==="bloques"&&conflictingFenderStage(f);
+        const tooltip=title+(conflict?" · ATENCIÓN: etapa de montaje con físico inferior al 100%":"");
+        return '<button type="button" data-aim-front="'+num+'" data-unknown="'+(has?0:1)+'" style="'+frontStyle(has?f[3]:null)+'" class="'+(selected?'sel':'')+(conflict?' needs-check':'')+'" title="'+esc(tooltip)+'" aria-label="'+esc(id+' · '+tooltip)+'">'+
           '<b>'+esc(id)+'</b><span>'+fmtSource(has?f[3]:null)+'</span></button>';
       }).join("")+'</div>'+
       matrixBody(doc,kind,items)+
