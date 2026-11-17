@@ -9,7 +9,7 @@
   const pctPoint=v=>Number.isFinite(v)?(v>=0?"+":"")+(v*100).toFixed(2)+" p.p.":"—";
   const ids=()=>data.services.map(s=>s.id);
   const colors=["#2b69d6","#0e9274","#865cc7","#dc832d","#b94b72","#578c9b","#65759b"];
-  let selected="P02",section="seguimiento",component=null,curveSelection=new Set(["P02","P05"]),cutOverrides={};
+  let selected="P02",section="seguimiento",component=null,frontNum=null,curveSelection=new Set(["P02","P05"]),cutOverrides={};
   const pack=code=>(window.AIM03_SERIES?.servicios||{})[code]||{estado:null,registros:[]};
   function records(code){
     const rows=(pack(code).registros||[]).filter(r=>typeof r.fecha==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)&&Number.isFinite(+r.ev)&&Number.isFinite(+r.pv)&&+r.ev>=0&&+r.ev<=1.01&&+r.pv>=0&&+r.pv<=1.01);
@@ -19,19 +19,21 @@
   function at(code){const rows=records(code);const cutDate=cutOverrides[code];return cutDate?rows.filter(r=>r.fecha<=cutDate):rows}
   function mean(values){const v=values.filter(Number.isFinite);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null}
   function measure(code){
-    const svc=data.services.find(s=>s.id===code),rows=at(code),r=rows.at(-1),tasks=scoped(code);
-    const demo=tasks.length?agg(tasks):null,p=pack(code);
-    let real=r?+r.ev:demo?demo.a/100:null,planv=r?+r.pv:demo?demo.p/100:null;
-    let spi=r?(r.spi!=null&&Number.isFinite(+r.spi)?+r.spi:planv>0?real/planv:null):demo&&demo.p>0?demo.spi:null;
-    const finished=p.estado==="cerrado"&&r&&real>=.999;
-    const measured=!!r ||!!demo;
+    const svc=data.services.find(s=>s.id===code),rows=at(code),r=rows.at(-1),p=pack(code);
+    const xml=window.AIM03_XML,summary=code==="P05"?xml?.P05?.overall:null;
+    const physicalXml=Array.isArray(summary)&&Number.isFinite(summary[1])?summary[1]/100:null;
+    const real=r?+r.ev:physicalXml,planv=r?+r.pv:null;
+    const spi=r?(r.spi!=null&&Number.isFinite(+r.spi)?+r.spi:planv>0?real/planv:null):null;
+    const finished=p.estado==="cerrado"&&real>=.999;
+    const measured=Number.isFinite(real);
     const state=finished?"cerrado":measured?(real>=.999?"cierre-pendiente":real>0?"en-ejecucion":"sin-iniciar"):"sin-base";
-    return {svc,code,rows,latest:r,real,plan:planv,spi,state,hasSource:!!r,isDemo:!r,ppc:r&&r.ppc!=null&&Number.isFinite(+r.ppc)?+r.ppc:null,
+    return {svc,code,rows,latest:r,real,plan:planv,spi,state,hasSource:!!r||!!summary,isDemo:false,ppc:r&&r.ppc!=null&&Number.isFinite(+r.ppc)?+r.ppc:null,
       ppcAvg:r?mean(rows.map(v=>v.ppc==null?null:+v.ppc)):null,
       variance:Number.isFinite(real)&&Number.isFinite(planv)?real-planv:null,
-      start:rows[0]?.fecha||null,end:r?.fecha||null};
+      start:rows[0]?.fecha||null,end:r?.fecha||(summary?xml.status.P05:null),
+      origin:r?"Excel diario · P02":summary?"Cronograma XML · P05":"Sin fuente"};
   }
-  const statusText=m=>({"cerrado":"Cerrado","en-ejecucion":"En ejecución","cierre-pendiente":"100% físico · cierre pendiente","sin-iniciar":"Sin iniciar","sin-base":"Sin datos"})[m.state];
+    const statusText=m=>({"cerrado":"Cerrado","en-ejecucion":"En ejecución","cierre-pendiente":"100% físico · cierre pendiente","sin-iniciar":"Sin iniciar","sin-base":"Sin datos"})[m.state];
   const semColor=m=>m.state==="cerrado"?"done":m.state==="sin-base"||!Number.isFinite(m.spi)?"none":m.spi<.7?"red":m.spi<.85?"orange":"green";
   const isDelayed=m=>m.state==="en-ejecucion"&&Number.isFinite(m.spi)&&m.spi<.85;
   function empty(message){return '<div class="aim-empty">'+esc(message)+'</div>'}
@@ -43,7 +45,7 @@
     const top=cfg.max??Math.max(1,...list.flatMap(s=>s.values.map(p=>p[1]))),bottom=cfg.min??0;
     const yy=v=>B-(v-bottom)/Math.max(.0001,top-bottom)*(B-T),xx=t=>L+(t-minT)/span*(R-L);
     let svg='<svg viewBox="0 0 '+W+' '+H+'" class="aim-curve" role="img" aria-label="'+esc(cfg.title)+'">';
-    for(let n=0;n<=4;n++){const v=bottom+(top-bottom)*n/4;svg+='<line x1="'+L+'" y1="'+yy(v)+'" x2="'+R+'" y2="'+yy(v)+'" stroke="#e4eaf2" stroke-dasharray="3 4"/><text x="'+(L-7)+'" y="'+(yy(v)+3)+'" font-size="10" text-anchor="end" fill="#7287a2">'+(cfg.ratio?v.toFixed(2):Math.round(v*100)+"%")+'</text>'}
+    for(let n=0;n<=4;n++){const v=bottom+(top-bottom)*n/4;svg+='<line x1="'+L+'" y1="'+yy(v)+'" x2="'+R+'" y2="'+yy(v)+'" stroke="#e4eaf2" stroke-dasharray="3 4"/><text x="'+(L-7)+'" y="'+(yy(v)+3)+'" font-size="10" text-anchor="end" fill="#7287a2">'+(cfg.ratio?v.toFixed(2):cfg.pp?(v*100).toFixed(1)+" p.p.":Math.round(v*100)+"%")+'</text>'}
     if(cfg.threshold!=null){const y=yy(cfg.threshold);if(y>=T&&y<=B)svg+='<line x1="'+L+'" y1="'+y+'" x2="'+R+'" y2="'+y+'" stroke="#d48a31" stroke-width="1" stroke-dasharray="6 5"/>'}
     for(const s of list){const path=s.values.map((v,i)=>(i?"L":"M")+xx(v[0]).toFixed(1)+" "+yy(v[1]).toFixed(1)).join(" ");
       svg+='<path d="'+path+'" stroke="'+s.color+'" fill="none" stroke-width="'+(s.dashed?2:2.6)+'"'+(s.dashed?' stroke-dasharray="6 4"':'')+' stroke-linecap="round" stroke-linejoin="round"/>';
@@ -77,21 +79,21 @@
       const vals=[["Plan",fmt(m.plan)],["Real",fmt(m.real)],["SPI",m.state==="cerrado"?"—":index(m.spi)],["PPC promedio",fmt(m.ppcAvg)]];
       return '<button type="button" class="aim-card aim-card-v05" data-aim-service="'+m.code+'">'+
         '<span class="aim-card-top"><b class="aim-code">'+m.code+'</b><span class="aim-traffic '+color+'" title="Estado según SPI">'+tag+'</span></span>'+
-        '<strong>'+esc(m.svc?.name||m.code)+'</strong><span class="aim-status">'+statusText(m)+(m.isDemo&&m.real!=null?" · demo":"")+'</span>'+
+        '<strong>'+esc(m.svc?.name||m.code)+'</strong><span class="aim-status">'+statusText(m)+'</span>'+
         '<span class="aim-card-grid">'+vals.map(([title,value])=>'<span><small>'+title+'</small><b>'+value+'</b></span>').join("")+'</span></button>';
     }).join("");
     const selector=$("homeCurveSelector");
     selector.innerHTML=ms.map(m=>'<label class="aim-curve-check"><input type="checkbox" data-aim-curve="'+m.code+'" '+(curveSelection.has(m.code)?"checked":"")+'><span>'+m.code+'</span></label>').join("");
     const selected=[...curveSelection].filter(id=>ids().includes(id));const live=selected.flatMap(serviceCurves);
     const calendar=live.length>0;
-    const curves=calendar?live:selected.flatMap(demoCurves);
+    const curves=live;
     $("homeServiceCurve").innerHTML=lineChart(curves,{calendar,title:"Curvas S por servicio",emptyText:"No se dispone de curvas para los servicios seleccionados."});
-    $("homeCurveExplanation").textContent=calendar?"Fechas calendario de los archivos publicados. Cada serie comienza en su primera fecha válida.":"Vista preliminar con semanas de DEMOSTRACIÓN. Las fechas calendario se mostrarán cuando se autoricen y vinculen los Excel de cada servicio.";
+    $("homeCurveExplanation").textContent=calendar?"Fechas calendario reales del Excel publicado. Cada serie comienza en su primera fecha válida. P05 no dispone todavía de una serie histórica EV/PV comparable.":"Sin curvas históricas publicadas para la selección. No se muestran avances simulados.";
   }
   function historical(code,field,{ratio=false,threshold,emptyText,min,max}={}){
     const rows=at(code).filter(r=>r[field]!=null&&Number.isFinite(+r[field]));
     return lineChart([{name:field.toUpperCase(),color:field==="ppc"?"#c99524":"#755ac7",values:rows.map(r=>[tDate(r.fecha),+r[field]])}],
-     {calendar:true,ratio,max:max??(ratio?1.2:1),min:min??0,threshold,emptyText:emptyText||"El Excel del servicio todavía no tiene una serie vinculada."});
+     {calendar:true,ratio,pp:field==="desvio",max:max??(ratio?1.2:1),min:min??0,threshold,emptyText:emptyText||"El Excel del servicio todavía no tiene una serie vinculada."});
   }
   function dailyBars(code){
     const rows=at(code).filter(r=>r.delta_real!=null&&Number.isFinite(+r.delta_real));
@@ -112,14 +114,15 @@
     $("serviceFollowupView").hidden=section!=="seguimiento";$("serviceFrontsView").hidden=section!=="frentes";
     const vals=[["AVANCE REAL",fmt(m.real)],["PROGRAMADO",fmt(m.plan)],["DESVÍO",pctPoint(m.variance)],["SPI",m.state==="cerrado"?"No aplica":index(m.spi)],["PPC DIARIO",fmt(m.ppc)],["PPC PROMEDIO",fmt(m.ppcAvg)]];
     $("serviceStats").innerHTML=vals.map(([k,v])=>'<div class="aim-stat"><small>'+k+'</small><b>'+v+'</b></div>').join("");
-    $("serviceNote").textContent=m.hasSource?"Origen: indicadores publicados del servicio. Los avances se muestran al corte seleccionado.":"Sin serie oficial asignada. Solo avance físico de DEMOSTRACIÓN cuando existe EDT sintética; PPC no disponible.";
-    const picker=$("serviceCutDate");picker.disabled=!m.hasSource;picker.min=m.start||"";picker.max=records(selected).at(-1)?.fecha||"";picker.value=m.end||"";
-    $("serviceCutLabel").textContent=m.end?"Corte "+m.end:"Corte de demostración";
-    $("serviceCurve").innerHTML=lineChart(serviceCurves(selected).length?serviceCurves(selected):demoCurves(selected),{calendar:!!serviceCurves(selected).length,title:"Curva S por servicio"});
+    $("serviceNote").textContent=m.hasSource?"Fuente: "+m.origin+". Corte "+m.end+". Los porcentajes de actividades XML corresponden al 08/11/2026, y la serie diaria de plataforma llega al 03/11/2026.":"Sin indicadores reportados para este servicio. No se asignan avances de demostración.";
+    const picker=$("serviceCutDate");picker.disabled=!m.rows.length;picker.min=m.start||"";picker.max=records(selected).at(-1)?.fecha||"";picker.value=m.end||"";
+    $("serviceCutLabel").textContent=m.end?"Corte "+m.end:"Sin corte";
+    $("serviceCurve").innerHTML=lineChart(serviceCurves(selected),{calendar:true,title:"Curva S por servicio",emptyText:"No se dispone de serie histórica real y planificada comparable para este servicio."});
     $("servicePpcChart").innerHTML=historical(selected,"ppc",{max:1,emptyText:"Sin historial PPC publicado para este servicio."});
     $("serviceSpiChart").innerHTML=historical(selected,"spi",{ratio:true,threshold:.85,emptyText:"Sin historial SPI publicado para este servicio."});
     $("serviceDeltaChart").innerHTML=historical(selected,"desvio",{min:-.10,max:.05,emptyText:"Sin historial de desvíos publicado para este servicio."});
     $("serviceDailyChart").innerHTML=dailyBars(selected);
+    renderProcessOverview();
     renderFronts();
   }
   const componentMap={
