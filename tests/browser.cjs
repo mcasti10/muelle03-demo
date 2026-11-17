@@ -27,6 +27,43 @@ const {chromium}=require('playwright');
   assert.match(await page.locator('#packageCards [data-aim-service="P05"]').innerText(),/7\.0%/);
   assert.ok(await page.locator('#packageCards [data-aim-service="P01"]').innerText().then(x=>x.includes('—')));
   assert.equal(await page.locator('#packageCards .aim-card').count(),7);
+  // Jerarquía ejecutiva legible: el título del servicio y los indicadores ganan peso.
+  assert.ok(await page.locator('#packageCards .aim-card-title').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize))>=20);
+  assert.ok(await page.locator('#packageCards .aim-card-grid b').first().evaluate(el=>parseFloat(getComputedStyle(el).fontSize))>=23);
+  const verifyMatrix=async(axisCount)=>{
+    const matrix=page.locator('#frontDetail .aim-activity-matrix');
+    const headings=await matrix.locator('thead th').allInnerTexts();
+    assert.equal(headings.length,axisCount+1);
+    assert.match(headings[0],/Actividad/i);
+    for(let i=1;i<=axisCount;i++)assert.match(headings[i],new RegExp('E'+String(i).padStart(2,'0')));
+    const names=await matrix.locator('tbody tr > th:first-child').allInnerTexts();
+    assert.ok(names.length>20,'Una fila por actividad del cronograma');
+    assert.ok(names.every(n=>n.trim().length>5&&!/^A\d{2}$/.test(n.trim())),'Nombres de actividades completos en la primera columna');
+    assert.equal(await matrix.locator('thead [data-aim-front]').count(),axisCount);
+  };
+  const verifySheet=async(service,kind,axis)=>{
+    const expected=await page.evaluate(({service,kind,axis})=>{
+      const doc=window.AIM03_XML,front=doc[service][kind].find(f=>f[0]===axis),template=doc.types[front[4]];
+      return template.names.map((name,i)=>({
+        name:doc.names[name],physical:parseInt(front[6].slice(4*i+2,4*i+4),16),
+        predecessors:(template.pred[i]||[]).map(p=>'ID '+(front[1]+template.offsets[p[0]])+' ('+({0:'FF',1:'FS',2:'SF',3:'SS'}[p[1]]||p[1])+')')
+      }));
+    },{service,kind,axis});
+    const sheet=page.locator('#aimFrontSheet');
+    await sheet.waitFor({state:'visible'});
+    assert.match(await sheet.innerText(),new RegExp('E'+String(axis).padStart(2,'0')));
+    const rows=sheet.locator('.aim-source-table tbody tr');assert.equal(await rows.count(),expected.length);
+    assert.equal(await sheet.locator('.aim-activity-progress[role=progressbar]').count(),expected.length);
+    for(let i=0;i<expected.length;i++){
+      const text=(await rows.nth(i).innerText()).replace(/\s+/g,' ');
+      assert.ok(text.includes(expected[i].name.replace(/\s+/g,' ')));
+      for(const predecessor of expected[i].predecessors)assert.ok(text.includes(predecessor),'Conserva la predecesora '+predecessor);
+      assert.equal(Number(await rows.nth(i).locator('.aim-activity-progress').getAttribute('aria-valuenow')),expected[i].physical);
+    }
+    assert.match(await sheet.locator('.aim-source-table').innerText(),/Predecesoras|Sin predecesoras/);
+    await page.waitForFunction(()=>document.activeElement?.id==='aimFrontSheet');
+    await page.waitForFunction(()=>{const box=document.getElementById('aimFrontSheet').getBoundingClientRect();return box.y>=0&&box.y<innerHeight});
+  };
   assert.equal(await page.locator('.topbar').count(),0);
   assert.match(await page.locator('#packageCards [data-aim-service="P02"] .aim-cut-card').innerText(),/03\/11\/2026/);
   assert.match(await page.locator('#packageCards [data-aim-service="P02"] .aim-cut-card').innerText(),/08\/11\/2026/);
@@ -58,7 +95,31 @@ const {chromium}=require('playwright');
   await page.locator('[data-aim-component="bloques"]').click();
   assert.match(await page.locator('#frontDetailTitle').innerText(),/Bloques de defensa/);
   assert.equal(await page.locator('#frontDetail .aim-front-picker [data-aim-front]').count(),44);
-  assert.equal(await page.locator('#frontDetail .aim-activity-matrix tbody tr').count(),44);
+  await verifyMatrix(44);
+  assert.match(await page.locator('#frontDetail .aim-activity-matrix tbody tr').first().locator('td').nth(2).innerText(),/—/);
+  assert.equal(await page.locator('#frontDetail .aim-activity-matrix tbody [data-aim-front="3"]').count(),0);
+  // E10/E12/E36 tienen plantillas sin las dos primeras tareas: no alinear por posición A01.
+  for(const axis of [10,12,36]){
+    const expected=await page.evaluate(axis=>{
+      const doc=window.AIM03_XML,front=doc.P02.bloques.find(f=>f[0]===axis),template=doc.types[front[4]],seen={};
+      return template.names.map((name,i)=>({key:name+'-'+(seen[name]=(seen[name]||0)+1),name:doc.names[name],physical:parseInt(front[6].slice(4*i+2,4*i+4),16)}));
+    },axis);
+    for(const task of expected){
+      const cell=page.locator('#frontDetail .aim-activity-matrix tbody [data-aim-front="'+axis+'"][data-aim-activity="'+task.key+'"]');
+      assert.equal(await cell.count(),1);
+      assert.ok((await cell.getAttribute('aria-label')).includes(task.physical+'% físico'));
+      assert.ok((await cell.locator('xpath=ancestor::tr').locator('th').innerText()).replace(/\s+/g,' ').includes(task.name.replace(/\s+/g,' ')));
+    }
+    const absentKeys=await page.evaluate(axis=>{
+      const doc=window.AIM03_XML,reference=doc.P02.bloques.find(f=>f[0]===4),front=doc.P02.bloques.find(f=>f[0]===axis),own=new Set(doc.types[front[4]].names),seen={};
+      return doc.types[reference[4]].names.map(name=>({name,key:name+'-'+(seen[name]=(seen[name]||0)+1)})).filter(t=>!own.has(t.name)).map(t=>t.key);
+    },axis);
+    assert.equal(absentKeys.length,2);
+    for(const key of absentKeys){
+      const row=page.locator('#frontDetail .aim-activity-matrix tbody tr').filter({has:page.locator('[data-aim-front="4"][data-aim-activity="'+key+'"]')});
+      assert.equal((await row.locator('td').nth(axis-1).innerText()).trim(),'—');
+    }
+  }
   assert.match(await page.locator('#frontDetail .aim-legend').innerText(),/100%/);
   assert.match(await page.locator('#frontDetail .aim-front-picker [data-aim-front="4"]').getAttribute('style'),/--front-border:#1b975c/);
   assert.equal(await page.locator('#frontDetail .aim-front-picker button.needs-check').count(),9);
@@ -72,9 +133,11 @@ const {chromium}=require('playwright');
   await page.locator('#frontComponents [data-aim-component="losa"]').click();
   assert.match(await page.locator('#frontDetail').innerText(),/Paño 01/);
   await page.locator('#frontComponents [data-aim-component="bloques"]').click();
-await page.locator('#frontDetail .aim-front-picker [data-aim-front="4"]').click();
+  await page.locator('#frontDetail .aim-activity-matrix thead [data-aim-front="4"]').click();
+  await verifySheet('P02','bloques',4);
   assert.match(await page.locator('#frontDetail .aim-front-head + .aim-no-map').innerText(),/Inconsistencia del cronograma/);
-  await page.locator('#frontDetail .aim-front-picker [data-aim-front="18"]').click();
+  await page.locator('#frontDetail .aim-activity-matrix tbody [data-aim-front="18"][data-aim-activity]').first().click();
+  await verifySheet('P02','bloques',18);
   assert.match(await page.locator('#frontDetail').innerText(),/E18/);
   assert.match(await page.locator('#frontDetail').innerText(),/47%/);
   assert.match(await page.locator('#frontDetail').innerText(),/17%/);
@@ -88,7 +151,13 @@ await page.locator('#frontDetail .aim-front-picker [data-aim-front="4"]').click(
   await page.locator('[data-aim-section="frentes"]').click();
   assert.equal(await page.locator('#frontComponents button').count(),1);
   assert.equal(await page.locator('#frontDetail .aim-front-picker [data-aim-front]').count(),39);
+  await verifyMatrix(39);
+  await page.locator('#frontDetail .aim-activity-matrix thead [data-aim-front="18"]').click();
+  await verifySheet('P05','ejes',18);
+  await page.locator('#frontDetail .aim-activity-matrix tbody [data-aim-front="1"][data-aim-activity]').first().click();
+  await verifySheet('P05','ejes',1);
   await page.locator('#frontDetail .aim-front-picker [data-aim-front="18"]').click();
+  await verifySheet('P05','ejes',18);
   assert.equal(await page.locator('#frontDetail .aim-source-table tbody tr').count(),28);
   assert.match(await page.locator('#frontDetail').innerText(),/13%/);
   await page.locator('#serviceNav [data-aim-service="P07"]').click();
@@ -101,6 +170,6 @@ await page.locator('#frontDetail .aim-front-picker [data-aim-front="4"]').click(
   await page.evaluate(()=>showScreen('matrix'));
   assert.equal(await page.locator('#fullAxisGrid button').count(),44);
   assert.deepEqual(errors,[]);
-  console.log('OK: resumen, 7 tarjetas, umbrales, curvas filtrables, paquetes, Seguimiento, Frentes y componentes, sin cargas Excel/CSV, motor previo disponible.');
+  console.log('OK: tarjetas legibles, matrices actividad × eje 44/39, selección de cabecera/celda, fichas enfocadas con barras físicas XML, predecesoras, navegación y motor previo disponible.');
  }finally{await browser?.close();await new Promise(r=>server.close(r))}
 })().catch(e=>{console.error(e);process.exitCode=1});

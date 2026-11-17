@@ -9,7 +9,7 @@
   const pctPoint=v=>Number.isFinite(v)?(v>=0?"+":"")+(v*100).toFixed(2)+" p.p.":"—";
   const ids=()=>data.services.map(s=>s.id);
   const colors=["#2b69d6","#0e9274","#865cc7","#dc832d","#b94b72","#578c9b","#65759b"];
-  let selected="P02",section="seguimiento",component=null,frontNum=null,curveSelection=new Set(["P02","P05"]),cutOverrides={};
+  let selected="P02",section="seguimiento",component=null,frontNum=null,selectedActivity=null,curveSelection=new Set(["P02","P05"]),cutOverrides={};
   const pack=code=>(window.AIM03_SERIES?.servicios||{})[code]||{estado:null,registros:[]};
   function records(code){
     const rows=(pack(code).registros||[]).filter(r=>typeof r.fecha==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)&&Number.isFinite(+r.ev)&&Number.isFinite(+r.pv)&&+r.ev>=0&&+r.ev<=1.01&&+r.pv>=0&&+r.pv<=1.01);
@@ -86,7 +86,7 @@
       const vals=[["Plan",fmt(m.plan)],["Real",fmt(m.real)],["SPI",m.state==="cerrado"?"—":index(m.spi)],["PPC promedio",fmt(m.ppcAvg)]];
       return '<button type="button" class="aim-card aim-card-v05 aim-sema-'+color+'" data-aim-service="'+m.code+'">'+
         '<span class="aim-card-top"><b class="aim-code">'+m.code+'</b><span class="aim-traffic '+color+'" title="Estado según SPI">'+tag+'</span></span>'+
-        '<strong>'+esc(m.svc?.name||m.code)+'</strong><span class="aim-status">'+statusText(m)+'</span>'+
+        '<strong class="aim-card-title">'+esc(m.svc?.name||m.code)+'</strong><span class="aim-status">'+statusText(m)+'</span>'+
         '<span class="aim-card-grid">'+vals.map(([title,value])=>'<span><small>'+title+'</small><b>'+value+'</b></span>').join("")+'</span>'+
         '<span class="aim-cut-card"><b>Fecha de corte</b><br>'+(
           m.code==="P02"?"Indicadores "+niceDate(m.end)+" · Actividades "+niceDate(window.AIM03_XML?.status?.P02):
@@ -198,12 +198,21 @@
       "Sector "+num;
   }
   const typeLink={0:"FF",1:"FS",2:"SF",3:"SS"};
+  // Los nombres repetidos son tareas distintas. La ocurrencia conserva esa identidad
+  // sin alinear por posición plantillas que omiten actividades.
+  function activityRows(template){
+    const occurrences=new Map();
+    return (template?.names||[]).map((name,ix)=>{
+      const occurrence=(occurrences.get(name)||0)+1;occurrences.set(name,occurrence);
+      return {key:name+"-"+occurrence,name,occurrence,ix};
+    });
+  }
   function showFrontDetail(doc,key,front){
     const [num,rootID,complete,physical,templateId,stages,progressHex,external]=front;
     const template=doc.types[templateId]||{names:[],pred:[],offsets:[]};
     const title=sourceFrontLabel(key,num);
     const stageCards=stages.map(s=>circle(srcName(s[0]),s[2],s[1])).join("");
-    const activities=template.names.map((nm,ix)=>{
+    const activities=activityRows(template).map(({name:nm,ix,key:activityKey})=>{
       const pc=parseInt(progressHex.slice(4*ix,4*ix+2),16),
             ph=parseInt(progressHex.slice(4*ix+2,4*ix+4),16),
             taskID=rootID+template.offsets[ix];
@@ -217,8 +226,9 @@
       });
       const preds=[...internal,...ext];
       const discrepancy=pc>=100&&ph<100;
-      return '<tr><td><b>'+esc(srcName(nm))+'</b><small>Actividad ID '+taskID+' · cronograma Project XML</small></td>'+
-        '<td>'+fmtSource(pc)+'</td><td class="'+(discrepancy?'data-warning':'')+'">'+fmtSource(ph)+(discrepancy?'<small>Verificar diferencia</small>':'')+'</td>'+
+      return '<tr class="'+(selectedActivity===activityKey?'is-selected':'')+'"><td><b>'+esc(srcName(nm))+'</b><small>Actividad ID '+taskID+' · cronograma Project XML</small></td>'+
+        '<td>'+fmtSource(pc)+'</td><td class="'+(discrepancy?'data-warning':'')+'"><span class="aim-activity-value">'+fmtSource(ph)+'</span>'+
+        '<div class="aim-activity-progress" role="progressbar" aria-label="'+esc(title+' · '+srcName(nm)+' · avance físico XML')+'" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+ph+'"><i style="width:'+ph+'%;background:'+toneHex[tone(ph)]+'"></i></div>'+(discrepancy?'<small>Verificar diferencia</small>':'')+'</td>'+
         '<td>'+esc(preds.join('; ')||"Sin predecesoras registradas")+'</td></tr>';
     }).join("");
     return '<div class="aim-front-head"><h4>'+title+' · Seguimiento al '+esc(doc.status[selected])+'</h4>'+
@@ -250,36 +260,37 @@
     const x=map[c];return '--front-border:'+x[0]+';--front-bg:'+x[1]+';--front-text:'+x[2];
   }
   function matrixBody(doc,kind,items){
-    const documented=items.filter(x=>x[1]!=null),count=documented.length;
-    if(!count)return empty("Este componente no tiene actividades por frente identificadas en el XML.");
-    const max=Math.max(...documented.map(f=>doc.types[f[4]]?.names?.length||0));
-    const typical=documented.reduce((acc,f)=>((acc[f[4]]=(acc[f[4]]||0)+1),acc),{});
-    const commonKey=Object.keys(typical).sort((a,b)=>typical[b]-typical[a])[0];
-    const reference=doc.types[commonKey];
-    const header=Array.from({length:max},(_,i)=>{
-      const nm=reference?.names?.[i],name=nm==null?"Actividad según plantilla":srcName(nm);
-      return '<th title="'+esc(name)+'">A'+String(i+1).padStart(2,"0")+'</th>';
-    }).join("");
-    const rows=items.map(f=>{
-      const [num,root,pc,ph,key,stages,packed]=f,defined=root!=null&&doc.types[key],sel=frontNum===num;
-      const template=defined?doc.types[key]:null;
-      const cells=Array.from({length:max},(_,i)=>{
-        if(!template||i>=template.names.length)return '<td class="miss" title="Sin avance individual en el XML">—</td>';
-        const raw=packed.slice(4*i,4*i+4);
-        if(raw.length!==4)return '<td class="miss" title="Avance no disponible">—</td>';
+    const documented=items.filter(x=>x[1]!=null);
+    if(!documented.length)return empty("Este componente no tiene actividades por frente identificadas en el XML.");
+    // La plantilla más completa fija el orden de lectura del cronograma. Las
+    // equivalencias usan nombre + ocurrencia, nunca la posición A01/A02.
+    const templates=[...new Set(documented.map(f=>f[4]))].sort((a,b)=>doc.types[b].names.length-doc.types[a].names.length);
+    const rows=[],seen=new Set();
+    for(const key of templates)for(const row of activityRows(doc.types[key])){
+      if(!seen.has(row.key)){seen.add(row.key);rows.push(row)}
+    }
+    const columns=items.map(front=>({front,tasks:new Map(activityRows(doc.types[front[4]]).map(r=>[r.key,r.ix]))}));
+    const header=columns.map(({front:f})=>'<th scope="col" class="'+(frontNum===f[0]?'is-selected':'')+'">'+
+      '<button type="button" data-aim-front="'+f[0]+'" aria-pressed="'+(frontNum===f[0])+'" aria-controls="aimFrontSheet" title="Abrir ficha de '+esc(sourceFrontLabel(kind,f[0]))+'">'+esc(sourceFrontLabel(kind,f[0]))+'</button>'+
+      '<small>'+fmtSource(f[3])+'</small></th>').join("");
+    const body=rows.map((row,index)=>{
+      const name=srcName(row.name);
+      const cells=columns.map(({front:f,tasks})=>{
+        const ix=tasks.get(row.key);
+        if(f[1]==null||ix===undefined)return '<td class="miss" title="Sin actividad equivalente o avance individual en el XML">—</td>';
+        const raw=f[6].slice(4*ix,4*ix+4);
+        if(!/^[0-9a-f]{4}$/i.test(raw))return '<td class="miss" title="Avance no disponible">—</td>';
         const reported=parseInt(raw.slice(0,2),16),physical=parseInt(raw.slice(2),16);
         const cls=physical>=100?"status-100":physical>=85?"status-85":physical>=50?"status-50":physical>=25?"status-25":"status-0";
-        const symbol=physical>=100?"✓":physical===0?"·":physical+"%";
-        const taskName=srcName(template.names[i]);
-        return '<td class="'+cls+'" title="'+esc(taskName)+'. Físico: '+physical+'%, cronograma: '+reported+'%." aria-label="'+esc(sourceFrontLabel(kind,num)+' · '+taskName+' · '+physical+'% físico')+'">'+symbol+'</td>';
+        const symbol=physical>=100?"✓":physical+"%";
+        return '<td class="'+cls+(frontNum===f[0]?' is-selected':'')+'">'+
+          '<button type="button" data-aim-front="'+f[0]+'" data-aim-activity="'+esc(row.key)+'" aria-controls="aimFrontSheet" title="'+esc(name)+'. Físico: '+physical+'%, cronograma: '+reported+'%. Abrir ficha." aria-label="'+esc(sourceFrontLabel(kind,f[0])+' · '+name+' · '+physical+'% físico')+'">'+symbol+'</button></td>';
       }).join("");
-      const status=defined?fmtSource(ph):"—",missing=!defined;
-      return '<tr class="'+(sel?'selected':'')+'"><th><button type="button" data-aim-front="'+num+'" style="border:0;background:transparent;font:inherit;font-weight:750;color:inherit;cursor:pointer" title="Ver actividades de '+esc(sourceFrontLabel(kind,num))+'">'+esc(sourceFrontLabel(kind,num))+'</button>'+
-        '<small style="display:block;color:#8195a8">'+status+'</small></th>'+cells+'</tr>';
+      return '<tr><th scope="row"><b>'+esc(name)+'</b><small>Actividad '+String(index+1).padStart(2,"0")+(row.occurrence>1?' · Ocurrencia '+row.occurrence:'')+'</small></th>'+cells+'</tr>';
     }).join("");
-    return '<div class="aim-matrix-header">Matriz de subactividades · '+count+' frentes con información</div>'+
-      '<p class="aim-matrix-foot">Cada casilla corresponde a una actividad del XML. ✓ significa 100% físico reportado, no aceptación técnica. A01–A'+max+' identifican posiciones de actividad; el nombre exacto aparece al pasar el cursor o al abrir el frente. Las plantillas no siempre tienen el mismo orden.</p>'+
-      '<div class="aim-matrix-wrap"><table class="aim-activity-matrix"><thead><tr><th>Eje, paño o tramo</th>'+header+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+    return '<div class="aim-matrix-header">Matriz de actividades por eje · '+documented.length+' frentes con información</div>'+
+      '<p class="aim-matrix-foot">Actividades del cronograma en filas y ejes, paños o tramos en columnas. Selecciona un eje o una casilla para abrir su ficha de avance y predecesoras. ✓ indica 100% físico reportado, no aceptación técnica; — indica que no existe un dato individual equivalente en la fuente.</p>'+
+      '<div class="aim-matrix-wrap" tabindex="0" role="region" aria-label="Matriz de actividades y avances por eje"><table class="aim-activity-matrix"><thead><tr><th scope="col">Actividad</th>'+header+'</tr></thead><tbody>'+body+'</tbody></table></div>';
   }
   function renderFronts(){
     const list=componentMap[selected]||[],doc=src();
@@ -324,22 +335,27 @@
         return '<button type="button" data-aim-front="'+num+'" data-unknown="'+(has?0:1)+'" style="'+frontStyle(has?f[3]:null)+'" class="'+(selected?'sel':'')+(conflict?' needs-check':'')+'" title="'+esc(tooltip)+'" aria-label="'+esc(id+' · '+tooltip)+'">'+
           '<b>'+esc(id)+'</b><span>'+fmtSource(has?f[3]:null)+'</span></button>';
       }).join("")+'</div>'+
-      matrixBody(doc,kind,items)+
       (chosen?
-        chosen[1]!=null?showFrontDetail(doc,kind,chosen):
-          '<div class="aim-empty" style="margin-top:14px"><b>'+esc(sourceFrontLabel(kind,chosen[0]))+'</b>. '+(kind==="bloques"&&chosen[0]%2===1?
-          "Alcance definido como reparación sin montaje de nueva defensa, pero el XML no contiene una medición individual de este eje.": 
-          "No existe una actividad individual verificable para este eje en los datos recibidos.")+'</div>':
-        '<div class="aim-empty" style="margin-top:14px">Selecciona un eje, paño o tramo para ver etapas, tareas y predecesoras.</div>');
+        '<section id="aimFrontSheet" class="aim-front-sheet" tabindex="-1" aria-label="Ficha de avance de '+esc(sourceFrontLabel(kind,chosen[0]))+'">'+
+        (chosen[1]!=null?showFrontDetail(doc,kind,chosen):
+          '<div class="aim-empty"><b>'+esc(sourceFrontLabel(kind,chosen[0]))+'</b>. '+(kind==="bloques"&&chosen[0]%2===1?
+          "Alcance definido como reparación sin montaje de nueva defensa, pero el XML no contiene una medición individual de este eje.":
+          "No existe una actividad individual verificable para este eje en los datos recibidos.")+'</div>')+'</section>':
+        '<div class="aim-empty" style="margin-top:14px">Selecciona un eje, paño o tramo para abrir su ficha de avance, subactividades y predecesoras.</div>')+
+      matrixBody(doc,kind,items);
   }
   function refresh(){renderHome();renderService()}
   window.aim03Refresh=refresh;
   document.addEventListener("click",e=>{
     const btn=e.target.closest("button");if(!btn)return;
-    if(btn.dataset.aimService){selected=btn.dataset.aimService;section="seguimiento";component=null;frontNum=null;showScreen("services");refresh();}
+    if(btn.dataset.aimService){selected=btn.dataset.aimService;section="seguimiento";component=null;frontNum=null;selectedActivity=null;showScreen("services");refresh();}
     if(btn.dataset.aimSection){section=btn.dataset.aimSection;if(section==="frentes"&&!component){component=selected==="P02"?"bloques":selected==="P05"?"arriostres":null;}renderService();}
-    if(btn.dataset.aimComponent){component=btn.dataset.aimComponent;frontNum=null;renderFronts();}
-    if(btn.dataset.aimFront){frontNum=Number(btn.dataset.aimFront);renderFronts();}
+    if(btn.dataset.aimComponent){component=btn.dataset.aimComponent;frontNum=null;selectedActivity=null;renderFronts();}
+    if(btn.dataset.aimFront){
+      frontNum=Number(btn.dataset.aimFront);selectedActivity=btn.dataset.aimActivity||null;renderFronts();
+      const sheet=$("aimFrontSheet");
+      if(sheet){sheet.focus({preventScroll:true});sheet.scrollIntoView({block:"start",behavior:"instant"})}
+    }
     if(btn.dataset.screen==="ifc"){const frame=$("ifcFrame");if(!frame.getAttribute("src"))frame.src="modelo-ifc.html";}
   });
   document.addEventListener("change",e=>{
