@@ -40,6 +40,51 @@
 .aim-source-table small{display:block;color:#7890aa;font-size:10px;margin-top:4px}
 .aim-source-banner{padding:10px 14px;margin-bottom:12px;border-radius:9px;background:#fff8e9;color:#855e18;font-size:11px}
 @media(max-width:550px){.aim-process-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.aim-progress-ring{width:64px;height:64px}.aim-progress-ring span{font-size:14px}.aim-front-picker{grid-template-columns:repeat(5,minmax(0,1fr))}}
+
+/* Etapa de refinamiento: tarjetas, anillos de avance, matrices XML */
+.aim-card-v05{border:1.5px solid #d9e3ef;transition:border-color .15s,box-shadow .15s;position:relative}
+.aim-card-v05.aim-sema-green{border:2px solid #21a06b}.aim-card-v05.aim-sema-orange{border:2px solid #e29c34}
+.aim-card-v05.aim-sema-red{border:2px solid #d74e59}.aim-card-v05.aim-sema-done{border:2px solid #178654}
+.aim-card-v05.aim-sema-none{border:1.5px solid #d9e3ef}
+.aim-card-v05:hover{box-shadow:0 5px 18px #23436b14}
+.aim-traffic{width:25px;height:25px;font-size:23px;display:grid;place-items:center;font-weight:800}
+.aim-traffic.green{color:#14895a}.aim-traffic.orange{color:#d8871c}
+.aim-traffic.red{color:#c83947}.aim-traffic.none{font-size:20px;color:#98a8bc}
+.aim-traffic.done{font-size:16px}
+.aim-cut-card{font-size:10px;color:#6c839e;line-height:1.45;padding-top:6px;border-top:1px solid #e4eaf3;margin-top:auto}
+.aim-cut-card b{color:#3b5272;font-weight:750}
+.aim-legend{display:flex;gap:8px 15px;align-items:center;flex-wrap:wrap;padding:11px 12px;margin:10px 0 12px;border:1px solid #e0e8f3;border-radius:10px;background:#f8fafd}
+.aim-legend span{display:flex;align-items:center;gap:6px;font-size:11px;color:#526985}
+.aim-legend i{width:12px;height:12px;display:inline-block;border-radius:4px;background:var(--state-color,#96a4b7)}
+.aim-legend-title{font-weight:750;font-size:11px;white-space:nowrap;color:#4a6180}
+.aim-process-item{border-top:4px solid var(--ring,#d6e3f0);position:relative}
+.aim-progress-ring{background:conic-gradient(var(--ring,#2676e8) var(--aim-p,0%),#e3eaf4 0)}
+.aim-progress-ring.is-zero{box-shadow:0 0 0 2px var(--ring,#cf4c57)}
+.aim-progress-ring.is-missing{background:#edf1f7}
+.aim-progress-ring span{font-variant-numeric:tabular-nums}
+.aim-front-picker button{border:1.5px solid var(--front-border,#d8e3f1);background:var(--front-bg,#f5f8fd);color:var(--front-text,#345271)}
+.aim-front-picker button:hover{filter:brightness(.965)}
+.aim-front-picker button.sel{border:2px solid #2869e1;background:#e8f1ff;color:#204d91}
+.aim-front-picker button[data-unknown="1"]{opacity:1;border-style:dashed}
+.aim-matrix-wrap{overflow:auto;border:1px solid #dce5f0;border-radius:10px;margin:10px 0 14px;max-height:440px}
+.aim-activity-matrix{border-collapse:separate;border-spacing:0;font-size:11px;min-width:max-content;width:100%}
+.aim-activity-matrix th,.aim-activity-matrix td{border-right:1px solid #e2e9f2;border-bottom:1px solid #e2e9f2;padding:5px 7px;text-align:center}
+.aim-activity-matrix thead th{background:#edf3fb;position:sticky;top:0;z-index:2;color:#48627f}
+.aim-activity-matrix thead th:first-child{left:0;z-index:4;text-align:left;min-width:112px}
+.aim-activity-matrix tbody th{position:sticky;left:0;z-index:1;background:#fafcff;text-align:left;min-width:112px;font-size:11px;cursor:pointer}
+.aim-activity-matrix tbody tr.selected th{background:#e9f1ff}
+.aim-activity-matrix td{width:36px;min-width:36px;height:33px;padding:4px 5px;font-weight:900;border-radius:0}
+.aim-activity-matrix td.miss{color:#9caabd;background:#eef2f7}
+.aim-activity-matrix td.status-100{color:white;background:#1c995f}
+.aim-activity-matrix td.status-85{color:#1a6072;background:#d6f1f3}
+.aim-activity-matrix td.status-50{color:#624e15;background:#fce5a0}
+.aim-activity-matrix td.status-25{color:#6d4319;background:#ffd6a4}
+.aim-activity-matrix td.status-0{color:#a24a51;background:#fde2e3}
+.aim-matrix-foot{font-size:11px;color:#7287a2;margin:7px 0 12px}
+.aim-matrix-header{font-size:12px;font-weight:760;margin:17px 0 6px;color:#223f63}
+.aim-no-map{font-size:11px;background:#fff8e6;padding:9px;border-left:3px solid #d9aa49;color:#7c622e;border-radius:4px;margin-top:8px}
+.aim-front-process-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:12px 0 16px}
+.aim-subscope-note{font-size:10px;color:#798ca3;line-height:1.5;min-height:32px}
 </style><style>
 /* Módulo aditivo. No modifica los estilos originales del visor ni las matrices. */
 .kpi-snapshot{display:flex;gap:15px;justify-content:space-between;align-items:center;margin:18px 0 13px}.kpi-snapshot h3{margin:4px 0 4px;font-size:21px}.kpi-snapshot small{color:#8293a9;font-size:11px}.kpi-eyebrow{font-size:11px;font-weight:800;color:#2865e9}.kpi-stamp{font-size:10px;padding:8px 12px;border-radius:22px;background:#fff3d9;color:#a56c15;font-weight:800;white-space:nowrap}.kpi-stamp.imported{background:#e3f6ec;color:#128556}.kpi-controls{display:flex;align-items:end;flex-wrap:wrap;gap:13px}.kpi-controls label{display:flex;gap:5px;flex-direction:column;flex:1;min-width:160px;font-size:11px;color:#5a6d89}.kpi-controls select,.kpi-controls input{font:inherit;border:1px solid #d8e4f2;border-radius:8px;background:white;padding:11px;min-height:41px;max-width:100%}.kpi-controls select{font-size:12px}.kpi-controls label:first-child{min-width:260px}.kpi-controls input[type=file]{font-size:11px;max-width:300px}.kpi-uploader .panel-body{padding:18px}.kpi-note{font-size:11px;line-height:1.6;color:#6c7e98;margin:12px 0 0}.kpi-toast{margin-top:9px;font-size:12px;font-weight:600;min-height:8px}.kpi-legend{display:flex;justify-content:space-between;align-items:center;gap:15px;flex-wrap:wrap;font-size:11px;color:#627592;margin:0 0 10px}.kpi-legend span i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:6px}.kpi-legend strong{color:#1c3768}.kpi-metrics{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:14px}.kpi-tile{background:white;border:1px solid #dce5f0;border-radius:12px;padding:16px 12px;min-width:0}.kpi-tile small{display:block;color:#8394aa;font-size:10px;font-weight:700;min-height:26px}.kpi-tile strong{display:block;margin:9px 0;font-size:22px;letter-spacing:-.8px;color:#193b77}.kpi-tile span{color:#889bb1;font-size:10px;line-height:1.4}.kpi-two{display:grid;grid-template-columns:1.55fr 1fr;gap:14px;margin-bottom:14px}.kpi-two .panel-body{padding:16px}.kpi-linkline{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #edf1f5;padding:13px 0;gap:15px;font-size:11px}.kpi-linkline span{color:#697e9a;line-height:1.45}.kpi-linkline b{white-space:nowrap;color:#1e477c}.kpi-guard{padding:11px 12px;border-radius:8px;background:#f8faff;border:1px solid #e6edf9;margin-bottom:6px}.kpi-two .btn{margin-top:14px}.kpi-tablewrap{overflow:auto;max-height:420px}.kpi-table{border-collapse:collapse;width:100%;font-size:11px;white-space:nowrap}.kpi-table td,.kpi-table th{border-bottom:1px solid #edf0f5;padding:10px 13px;text-align:right}.kpi-table th{background:#f5f8fe;position:sticky;top:0;color:#5c6e87}.kpi-table td:first-child,.kpi-table th:first-child{text-align:left}.kpi-quality{margin:13px 2px 30px;padding:13px;background:#fff7e9;color:#836029;border:1px solid #f5dfba;border-radius:10px;font-size:11px;line-height:1.6}.kpi-mini{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-top:9px}.kpi-mini button{padding:11px 5px;background:#f1f6ff;color:#2566dc;border:1px solid #dce7fc;border-radius:8px;font-size:12px;font-weight:800}.kpi-mini small{display:block;font-size:9px;font-weight:500;color:#7b8ca4;margin-top:4px;line-height:1.25}.kpi-mini button:hover{background:#dce8ff}@media(max-width:1350px){.kpi-metrics{grid-template-columns:repeat(3,1fr)}.kpi-mini{grid-template-columns:repeat(3,1fr)}}@media(max-width:850px){.kpi-two{grid-template-columns:1fr}.kpi-metrics{grid-template-columns:repeat(2,1fr)}.kpi-snapshot{flex-direction:column;align-items:start}.kpi-controls label{min-width:100%;flex:auto}.kpi-mini{grid-template-columns:repeat(2,1fr)}}
@@ -57,10 +102,9 @@
 
 
 </nav><div class="side-note"><b>V0.4 · VERSIÓN DE PRUEBAS</b><div>Datos de demostración. La geometría IFC se carga desde el equipo, sin publicarla.</div></div></aside>
-<main class="main"><header class="topbar"><div class="path">Infraestructura portuaria <span>›</span> <b>Gestión de la Construcción · AIM03</b></div><div class="topright"><span class="chip primary">DEMO FUNCIONAL</span><span class="chip">Corte S<span class="wtext">12</span></span><span class="chip orange">Datos ficticios</span></div></header>
-<div class="banner">⚠ Los avances, metrados y cronogramas iniciales son <b>datos de demostración</b>. El visor IFC leerá el modelo original localmente. No se muestra un porcentaje global sin las ponderaciones de servicios validadas.</div>
+<main class="main">
 <section id="screen-home" class="screen active">
-<div class="heading"><div><div class="eyebrow">GESTIÓN DE LA CONSTRUCCIÓN · AIM03</div><h1>Arreglo de Infraestructura del Muelle 03 (AIM03)</h1><p>Estado de los servicios al último corte informado.</p></div></div>
+<div class="heading"><div><h1>Arreglo de Infraestructura del Muelle 03 (AIM03)</h1><p>Estado de los servicios al último corte informado.</p></div></div>
 <div class="metrics" id="globalMetrics"></div>
 <article class="panel aim-panel"><div class="panel-head"><div><h2>Servicios</h2><p>Avance real, avance programado, SPI y PPC promedio. Selecciona una tarjeta para ver el seguimiento del servicio.</p></div></div><div class="panel-body"><div class="aim-service-cards" id="packageCards"></div></div></article>
 <article class="panel aim-panel"><div class="panel-head"><div><h2>Curvas S por servicio</h2><p>Comparación de avance físico real y programado. Selecciona los servicios que deseas visualizar.</p></div></div>
