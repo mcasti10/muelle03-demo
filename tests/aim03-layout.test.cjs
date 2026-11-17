@@ -20,13 +20,37 @@ test('new AIM03 platform and seven services without inventing P07 data',()=>{
  assert.equal(data.services.find(s=>s.id==='P07').name,'Revestimiento sobre tablero');
  assert.equal(data.activities.filter(t=>t.servicio==='P07').length,0);
 });
-test('summary has no unsupported project-level SPI or fictitious project advance',()=>{
- assert.match(ui,/AVANCE GLOBAL PONDERADO/);
- assert.match(ui,/Pendiente de pesos relativos presupuestales autorizados/);
+test('approved summary and Paquetes constructivos structure',()=>{
+ assert.match(html,/id="screen-home"/);
+ assert.match(html,/id="screen-services"/);
+ assert.match(html,/Paquetes constructivos/);
+ assert.match(html,/id="serviceSegmented"/);
+ assert.match(html,/id="serviceFrontsView"/);
+ assert.match(html,/id="serviceFollowupView"/);
+ for(const id of ["servicePpcChart","serviceSpiChart","serviceDeltaChart","serviceDailyChart","frontComponents","homeCurveSelector"])
+   assert.ok(html.includes('id="'+id+'"'),id);
+ assert.match(ui,/SERVICIOS CON ATRASO/);
+ assert.match(ui,/m\.spi<\.85/);
+ assert.match(ui,/m\.spi<\.7/);
+ assert.match(ui,/PPC PROMEDIO/);
+ assert.match(ui,/percentual|p\.p\./i);
  assert.doesNotMatch(html,/PRESUPUESTO CONTROL DEMO/);
  assert.doesNotMatch(html,/Revisión EDT/);
  assert.doesNotMatch(html,/<b>Obra digital<\/b>/);
- assert.match(ui,/status==='closed'[\s\S]{0,210}status==='active'/);
+ assert.doesNotMatch(html,/type="file"/); // Neither CSV nor Excel can be uploaded through main site.
+});
+test('per-service public series are empty until confirmed and authorized',()=>{
+ const raw=fs.readFileSync('datos-servicios.js','utf8'),sandbox={window:{}};
+ vm.runInNewContext(raw,sandbox);
+ const records=sandbox.window.AIM03_SERIES.servicios;
+ for(const id of ["P01","P02","P03","P04","P05","P06","P07"]){
+  assert.deepEqual(Array.from(records[id].registros),[]);
+  assert.equal(records[id].estado,null);
+ }
+ assert.match(ui,/fecha/);
+ assert.match(ui,/Sin historial PPC/);
+ assert.match(ui,/cierre-pendiente/);
+ assert.match(ui,/data-aim-component/);
 });
 test('IFC viewer keeps file local and exposes real mesh API, orbit and selection',()=>{
  assert.match(ifc,/input id="ifcFile" type="file"/);
@@ -41,7 +65,7 @@ test('IFC viewer keeps file local and exposes real mesh API, orbit and selection
  assert.doesNotMatch(ifc,/fetch\(\s*file|XMLHttpRequest|api\.github\.com/);
 });
 test('source JavaScript syntax and IFC module syntax',()=>{
- for(const src of [ui,edtsrc])assert.doesNotThrow(()=>new Function(src));
+ for(const src of [ui,edtsrc,fs.readFileSync('datos-servicios.js','utf8')])assert.doesNotThrow(()=>new Function(src));
  const model=ifc.match(/<script type="module">([\s\S]*?)<\/script>/);
  assert.ok(model,'module script missing');
  const tmp=path.join(process.cwd(),'tests','_ifc_syntax_check.mjs');
