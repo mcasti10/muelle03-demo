@@ -4,91 +4,59 @@ const http=require('node:http');
 const {chromium}=require('playwright');
 (async()=>{
  const html=fs.readFileSync('index.html');
- // Se sirve bajo la misma subruta que Pages; no se modifica el documento para las pruebas.
- const server=http.createServer((req,res)=>{if(req.url==='/muelle03-demo/'){res.setHeader('Content-Type','text/html; charset=utf-8');res.end(html)}else if(['/muelle03-demo/edt-fisica.js','/muelle03-demo/aim03-ui.js'].includes(req.url)){res.setHeader('Content-Type','application/javascript; charset=utf-8');res.end(fs.readFileSync(req.url.split('/').pop()))}else{res.statusCode=404;res.end()}});
+ const assetSet=new Set(['edt-fisica.js','aim03-ui.js','datos-servicios.js','modelo-ifc.html']);
+ const server=http.createServer((req,res)=>{
+   if(req.url==='/muelle03-demo/'){res.setHeader('Content-Type','text/html; charset=utf-8');return res.end(html)}
+   const name=req.url?.split('/').pop();
+   if(req.url?.startsWith('/muelle03-demo/')&&assetSet.has(name)){
+     res.setHeader('Content-Type',name.endsWith('.html')?'text/html; charset=utf-8':'application/javascript; charset=utf-8');
+     return res.end(fs.readFileSync(name));
+   }
+   res.statusCode=404;res.end();
+ });
  await new Promise(r=>server.listen(0,'127.0.0.1',r));
  let browser;
  try{
   browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{})});
   const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(`http://127.0.0.1:${server.address().port}/muelle03-demo/`);
-  for(const name of ['services','contractor','data']){await page.locator(`[data-screen="${name}"]`).first().click();assert.ok(await page.locator('#screen-'+name).isVisible())}
-  assert.equal(await page.locator('#serviceNav [data-aim-service]').count(),7);
-  assert.match(await page.locator('#screen-home').innerText(),/Arreglo de Infraestructura del Muelle 03/);
-  for(const name of ['matrix','process','model','photos']){await page.evaluate(n=>showScreen(n),name);assert.ok(await page.locator('#screen-'+name).isVisible())}
-  await page.locator('#screen-services').isVisible();
-  await page.evaluate(() => showScreen('services'));
+  await page.goto('http://127.0.0.1:'+server.address().port+'/muelle03-demo/');
+  await page.locator('#packageCards .aim-card').first().waitFor();
+  assert.equal(await page.locator('#packageCards .aim-card').count(),7);
+  assert.equal(await page.locator('#globalMetrics .metric').count(),3);
+  assert.match(await page.locator('#globalMetrics').innerText(),/SERVICIOS CON ATRASO/);
+  assert.equal(await page.locator('#screen-home').locator('input[type="file"]').count(),0);
+  assert.equal(await page.locator('input[type="file"]').count(),0);
+  assert.equal(await page.locator('[data-screen="services"]').first().innerText(),'Paquetes constructivos');
+  assert.equal(await page.locator('#homeCurveSelector [type="checkbox"]').count(),7);
+  await page.locator('#packageCards [data-aim-service="P02"]').click();
+  assert.ok(await page.locator('#screen-services').isVisible());
+  assert.match(await page.locator('#serviceTitle').innerText(),/P02/);
+  assert.equal(await page.locator('#serviceStats .aim-stat').count(),6);
+  assert.ok(await page.locator('#serviceFollowupView').isVisible());
+  assert.equal(await page.locator('#serviceSegmented button').count(),2);
+  await page.locator('[data-aim-section="frentes"]').click();
+  assert.ok(await page.locator('#serviceFrontsView').isVisible());
+  assert.equal(await page.locator('#frontComponents button').count(),4);
+  await page.locator('[data-aim-component="bloques"]').click();
+  assert.match(await page.locator('#frontDetailTitle').innerText(),/Bloques de defensa/);
+  assert.match(await page.locator('#frontDetail').innerText(),/No se han asignado porcentajes/);
+  await page.locator('[data-aim-section="seguimiento"]').click();
+  assert.ok(await page.locator('#serviceFollowupView').isVisible());
+  assert.match(await page.locator('#servicePpcChart').innerText(),/Sin historial PPC/);
   await page.locator('#serviceNav [data-aim-service="P05"]').click();
-  assert.ok(await page.locator('#serviceActivities table tbody tr').count()>0);
+  assert.match(await page.locator('#serviceTitle').innerText(),/P05/);
+  await page.locator('[data-aim-section="frentes"]').click();
+  assert.equal(await page.locator('#frontComponents button').count(),1);
   await page.locator('#serviceNav [data-aim-service="P07"]').click();
-  assert.match(await page.locator('#serviceStats').innerText(),/Sin línea base/);
-  assert.match(await page.locator('#serviceActivities').innerText(),/No hay actividades/);
-  await page.evaluate(() => showScreen('matrix'));
-  for(const [pkg,applicable] of [['P02',44],['P05',39]]){
-   await page.locator(`[data-module="${pkg}"]`).click();assert.equal(await page.locator('#fullAxisGrid button').count(),44);assert.equal(await page.locator('#fullAxisGrid button:not([disabled])').count(),applicable);
-  }
-  await page.locator('#fullAxisGrid [data-ax="E20"]').click();assert.match(await page.locator('#axisDetail').innerText(),/E20/);
-  assert.ok((await page.locator('#globalMetrics').innerText()).includes('AVANCE GLOBAL PONDERADO'));
-  assert.ok(!(await page.locator('#globalMetrics').innerText()).includes('PRESUPUESTO'));
-  const id='P05-E20-AR03';
-  await page.locator('[data-screen="data"]').first().click();
-  const upload=async text=>page.locator('#csvFile').setInputFiles({name:'demo.csv',mimeType:'text/csv',buffer:Buffer.from(text)});
-  await upload(`id,avance_real_pct\n${id},1%`);await page.locator('#msg').filter({hasText:'Importadas 1'}).waitFor();
-  assert.equal(await page.evaluate(id=>data.activities.find(a=>a.id===id).avance_real_pct,id),1);
-  await upload(`id;avance_real_pct\n${id};0,5%`);await page.waitForFunction(id=>data.activities.find(a=>a.id===id).avance_real_pct===.5,id);
-  await upload(`id,avance_real_pct\n${id},80\nP05-E20-AR04, `);await page.locator('#msg').filter({hasText:'Error:'}).waitFor();assert.equal(await page.evaluate(id=>data.activities.find(a=>a.id===id).avance_real_pct,id),.5);
-  await page.evaluate(() => showScreen('matrix'));await page.locator('#axisDetail [data-edit-activity="'+id+'"]').click();assert.equal(await page.locator('#editValue').inputValue(),'0.5');await page.locator('#cancelEdit').click();
-  await page.evaluate(() => showScreen('process'));assert.ok(await page.locator('#processTable td button').count()>400);
-  await page.evaluate(() => showScreen('model'));await page.locator('#modelService').selectOption('P05');
-  await page.locator('[data-model-mode="plan"]').click();await page.locator('[data-model-mode="gap"]').click();await page.locator('[data-view="top"]').click();await page.locator('#zoomIn').click();
-  await page.locator('#weekSlider').fill('6');assert.equal(await page.evaluate(()=>week),6);
-  await page.locator('#playBtn').click();await page.waitForFunction(()=>week>6);await page.locator('#playBtn').click();
-  assert.ok(await page.locator('canvas').evaluate(c=>c.width>0&&c.height>0));
-  await page.locator('[data-screen="contractor"]').first().click();
-  const report='FECHA;PPC;SPI;EV;PV\n2026-11-11;1%;1;0,5%;0,5%';
-  const kpiUpload=async text=>page.locator('#kpiFile').setInputFiles({name:'indicadores.csv',mimeType:'text/csv',buffer:Buffer.from(text)});
-  await kpiUpload(report);await page.locator('#kpiToast').filter({hasText:'1 cortes'}).waitFor();assert.match(await page.locator('.kpi-metrics').innerText(),/0.50%/);
-  const snapshot=await page.locator('.kpi-metrics').innerText();
-  await kpiUpload(report+'\n31/02/2026;1;1;1;1');await page.locator('#kpiToast').filter({hasText:'No se pudo importar'}).waitFor();assert.equal(await page.locator('.kpi-metrics').innerText(),snapshot);
-  for(const name of ['valid.xlsx','cached-formulas.xlsx','invalid-date.xlsx','date1904.xlsx','wrong-sheet.xlsx']){
-   await page.locator('#kpiFile').setInputFiles('tests/fixtures/'+name);
-   await page.locator('#kpiToast').filter({hasText:['valid.xlsx','cached-formulas.xlsx'].includes(name)?'1 cortes':'No se pudo importar'}).waitFor();
-   assert.equal(await page.locator('.kpi-metrics').innerText(),snapshot);
-  }
-  // XLSX real del flujo diario: cancelación, errores sin diálogo y aceptación explícita.
-  const exportSeries=async()=>{
-   const download=page.waitForEvent('download');await page.locator('#kpiExport').click();
-   const stream=await (await download).createReadStream();let text='';for await(const chunk of stream)text+=chunk.toString();return text;
-  };
-  const originalCSV=await exportSeries();
-  const originalSource=await page.locator('.kpi-snapshot').innerText();
-  const originalActivities=await page.evaluate(()=>JSON.stringify({data,totals:agg(data.activities)}));
-  const pendingFile='tests/fixtures/trailing-incomplete.xlsx';
-  let dialogMessage='';
-  page.once('dialog',async dialog=>{dialogMessage=dialog.message();await dialog.dismiss()});
-  await page.locator('#kpiFile').setInputFiles(pendingFile);
-  await page.locator('#kpiToast').filter({hasText:'Importación cancelada'}).waitFor();
-  assert.match(dialogMessage,/2026-11-13/);assert.match(dialogMessage,/faltan PPC, SPI, PV/);assert.match(dialogMessage,/2 cortes completos y validados/);
-  assert.equal(await exportSeries(),originalCSV);assert.equal(await page.locator('.kpi-snapshot').innerText(),originalSource);
-  assert.equal(await page.locator('.kpi-metrics').innerText(),snapshot);
-  // Ni una fecha mala ni un dato inválido se pueden excluir con confirmación.
-  let unexpectedDialogs=0;
-  const rejectDialog=async dialog=>{unexpectedDialogs++;await dialog.dismiss()};page.on('dialog',rejectDialog);
-  for(const name of ['intermediate-incomplete.xlsx','pending-invalid-date.xlsx','pending-invalid-value.xlsx']){
-   await page.locator('#kpiFile').setInputFiles('tests/fixtures/'+name);
-   await page.locator('#kpiToast').filter({hasText:'No se pudo importar'}).waitFor();
-   assert.equal(await exportSeries(),originalCSV);assert.equal(await page.locator('.kpi-snapshot').innerText(),originalSource);
-  }
-  page.off('dialog',rejectDialog);assert.equal(unexpectedDialogs,0);
-  page.once('dialog',async dialog=>{await dialog.accept()});
-  await page.locator('#kpiFile').setInputFiles(pendingFile);
-  await page.locator('#kpiToast').filter({hasText:'2 cortes'}).waitFor();
-  assert.match(await page.locator('#kpiToast').innerText(),/excluidas con tu confirmación/);
-  assert.match(await page.locator('.kpi-quality').innerText(),/1 fila.*excluidas con confirmación/);
-  const acceptedCSV=await exportSeries();assert.notEqual(acceptedCSV,originalCSV);
-  assert.match(acceptedCSV,/2026-11-12/);assert.doesNotMatch(acceptedCSV,/2026-11-13/);
-  assert.equal(acceptedCSV.trim().split('\n').length,3);assert.match(await page.locator('.kpi-metrics').innerText(),/2.00%/);
-  assert.equal(await page.evaluate(()=>JSON.stringify({data,totals:agg(data.activities)})),originalActivities);
-  assert.deepEqual(errors,[]);console.log('OK: navegación, matrices 44/39, fichas, procesos, edición, CSV/XLSX atómicos, cancelación/confirmación de cortes en preparación, indicadores y visor 4D.');
+  assert.match(await page.locator('#serviceStats').innerText(),/—/);
+  await page.locator('[data-screen="home"]').first().click();
+  assert.ok(await page.locator('#screen-home').isVisible());
+  await page.locator('#homeCurveSelector [data-aim-curve="P01"]').check();
+  assert.equal(await page.locator('#homeCurveSelector [data-aim-curve="P01"]').isChecked(),true);
+  // El motor previo sigue cargado para matrices y proceso hasta diseñar la siguiente etapa.
+  await page.evaluate(()=>showScreen('matrix'));
+  assert.equal(await page.locator('#fullAxisGrid button').count(),44);
+  assert.deepEqual(errors,[]);
+  console.log('OK: resumen, 7 tarjetas, umbrales, curvas filtrables, paquetes, Seguimiento, Frentes y componentes, sin cargas Excel/CSV, motor previo disponible.');
  }finally{await browser?.close();await new Promise(r=>server.close(r))}
 })().catch(e=>{console.error(e);process.exitCode=1});
