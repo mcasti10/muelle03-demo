@@ -61,6 +61,9 @@ const {chromium}=require('playwright');
   assert.equal(await page.locator('#frontDetail .aim-activity-matrix tbody tr').count(),44);
   assert.match(await page.locator('#frontDetail .aim-legend').innerText(),/100%/);
   assert.match(await page.locator('#frontDetail .aim-front-picker [data-aim-front="4"]').getAttribute('style'),/--front-border:#1b975c/);
+  assert.equal(await page.locator('#frontDetail .aim-front-picker button.needs-check').count(),9);
+  assert.match(await page.locator('#frontDetail .aim-no-map').first().innerText(),/9 bloques/);
+
   assert.match(await page.locator('#frontDetail .aim-front-picker [data-aim-front="3"]').innerText(),/—/);
 
     await page.locator('#frontComponents [data-aim-component="viga_tierra"]').click();
@@ -69,7 +72,9 @@ const {chromium}=require('playwright');
   await page.locator('#frontComponents [data-aim-component="losa"]').click();
   assert.match(await page.locator('#frontDetail').innerText(),/Paño 01/);
   await page.locator('#frontComponents [data-aim-component="bloques"]').click();
-await page.locator('#frontDetail .aim-front-picker [data-aim-front="18"]').click();
+await page.locator('#frontDetail .aim-front-picker [data-aim-front="4"]').click();
+  assert.match(await page.locator('#frontDetail .aim-front-head + .aim-no-map').innerText(),/Inconsistencia del cronograma/);
+  await page.locator('#frontDetail .aim-front-picker [data-aim-front="18"]').click();
   assert.match(await page.locator('#frontDetail').innerText(),/E18/);
   assert.match(await page.locator('#frontDetail').innerText(),/47%/);
   assert.match(await page.locator('#frontDetail').innerText(),/17%/);
