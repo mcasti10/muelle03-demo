@@ -22,11 +22,11 @@
     const svc=data.services.find(s=>s.id===code),rows=at(code),r=rows.at(-1),tasks=scoped(code);
     const demo=tasks.length?agg(tasks):null,p=pack(code);
     let real=r?+r.ev:demo?demo.a/100:null,planv=r?+r.pv:demo?demo.p/100:null;
-    let spi=r?(Number.isFinite(+r.spi)?+r.spi:planv>0?real/planv:null):demo&&demo.p>0?demo.spi:null;
+    let spi=r?(r.spi!=null&&Number.isFinite(+r.spi)?+r.spi:planv>0?real/planv:null):demo&&demo.p>0?demo.spi:null;
     const finished=p.estado==="cerrado"&&r&&real>=.999;
     const measured=!!r ||!!demo;
     const state=finished?"cerrado":measured?(real>=.999?"cierre-pendiente":real>0?"en-ejecucion":"sin-iniciar"):"sin-base";
-    return {svc,code,rows,latest:r,real,plan:planv,spi,state,hasSource:!!r,isDemo:!r,ppc:r&&Number.isFinite(+r.ppc)?+r.ppc:null,
+    return {svc,code,rows,latest:r,real,plan:planv,spi,state,hasSource:!!r,isDemo:!r,ppc:r&&r.ppc!=null&&Number.isFinite(+r.ppc)?+r.ppc:null,
       ppcAvg:r?mean(rows.map(v=>v.ppc==null?null:+v.ppc)):null,
       variance:Number.isFinite(real)&&Number.isFinite(planv)?real-planv:null,
       start:rows[0]?.fecha||null,end:r?.fecha||null};
