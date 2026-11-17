@@ -36,6 +36,13 @@
     const statusText=m=>({"cerrado":"Cerrado","en-ejecucion":"En ejecución","cierre-pendiente":"100% físico · cierre pendiente","sin-iniciar":"Sin iniciar","sin-base":"Sin datos"})[m.state];
   const semColor=m=>m.state==="cerrado"?"done":m.state==="sin-base"||!Number.isFinite(m.spi)?"none":m.spi<.7?"red":m.spi<.85?"orange":"green";
   const isDelayed=m=>m.state==="en-ejecucion"&&Number.isFinite(m.spi)&&m.spi<.85;
+  const niceDate=iso=>/^\d{4}-\d{2}-\d{2}$/.test(iso||"")?iso.slice(8,10)+"/"+iso.slice(5,7)+"/"+iso.slice(0,4):"Sin fecha reportada";
+  const tone=v=>v==null||!Number.isFinite(Number(v))?"missing":Number(v)>=100?"green":Number(v)>=85?"blue":Number(v)>=50?"yellow":Number(v)>=25?"orange":"red";
+  const toneHex={green:"#199964",blue:"#179baa",yellow:"#d5ac32",orange:"#df9030",red:"#cc515c",missing:"#a0aebd"};
+  function legend(){
+    return '<div class="aim-legend"><b class="aim-legend-title">Avance físico</b>'+
+      [["green","100%"],["blue","85–99%"],["yellow","50–84%"],["orange","25–49%"],["red","0–24%"],["missing","Sin dato"]].map(([c,t])=>'<span><i style="--state-color:'+toneHex[c]+'"></i>'+t+'</span>').join("")+'</div>';
+  }
   function empty(message){return '<div class="aim-empty">'+esc(message)+'</div>'}
   function lineChart(series,opt={}){
     const cfg={height:210,ratio:false,title:"",...opt},list=series.filter(s=>s.values?.length>=2);
@@ -77,10 +84,15 @@
     $("packageCards").innerHTML=ms.map(m=>{
       const color=semColor(m),tag=m.state==="cerrado"?"✓":color==="none"?"·":"●";
       const vals=[["Plan",fmt(m.plan)],["Real",fmt(m.real)],["SPI",m.state==="cerrado"?"—":index(m.spi)],["PPC promedio",fmt(m.ppcAvg)]];
-      return '<button type="button" class="aim-card aim-card-v05" data-aim-service="'+m.code+'">'+
+      return '<button type="button" class="aim-card aim-card-v05 aim-sema-'+color+'" data-aim-service="'+m.code+'">'+
         '<span class="aim-card-top"><b class="aim-code">'+m.code+'</b><span class="aim-traffic '+color+'" title="Estado según SPI">'+tag+'</span></span>'+
         '<strong>'+esc(m.svc?.name||m.code)+'</strong><span class="aim-status">'+statusText(m)+'</span>'+
-        '<span class="aim-card-grid">'+vals.map(([title,value])=>'<span><small>'+title+'</small><b>'+value+'</b></span>').join("")+'</span></button>';
+        '<span class="aim-card-grid">'+vals.map(([title,value])=>'<span><small>'+title+'</small><b>'+value+'</b></span>').join("")+'</span>'+
+        '<span class="aim-cut-card"><b>Fecha de corte</b><br>'+(
+          m.code==="P02"?"Indicadores "+niceDate(m.end)+" · Actividades "+niceDate(window.AIM03_XML?.status?.P02):
+          m.code==="P05"?"Actividades "+niceDate(window.AIM03_XML?.status?.P05):
+          "Sin reporte validado"
+        )+'</span></button>';
     }).join("");
     const selector=$("homeCurveSelector");
     selector.innerHTML=ms.map(m=>'<label class="aim-curve-check"><input type="checkbox" data-aim-curve="'+m.code+'" '+(curveSelection.has(m.code)?"checked":"")+'><span>'+m.code+'</span></label>').join("");
@@ -129,10 +141,14 @@
   const src=()=>window.AIM03_XML;
   const srcName=id=>src()?.names?.[id]||"Actividad sin título";
   const fmtSource=v=>Number.isFinite(v)?v.toFixed(0)+"%":"—";
-  function circle(name,phys,pc){
-    const v=Math.max(0,Math.min(100,Number(phys)||0)),diff=Math.abs(Number(pc)-Number(phys))>=20;
-    return '<div class="aim-process-item"><div class="aim-progress-ring" style="--aim-p:'+v+'%"><span>'+fmtSource(phys)+'</span></div>'+
-      '<b>'+esc(name)+'</b><small>Físico XML: '+fmtSource(phys)+'<br>Avance cronograma: '+fmtSource(pc)+(diff?'<br><span class="data-warning">Indicadores diferentes</span>':'')+'</small></div>';
+  function circle(name,phys,pc,comment){
+    const p=phys==null||!Number.isFinite(Number(phys))?null:Number(phys),
+          v=p==null?0:Math.max(0,Math.min(100,p)),c=tone(p),
+          diff=pc!=null&&p!=null&&Math.abs(Number(pc)-p)>=20;
+    return '<div class="aim-process-item" style="--ring:'+toneHex[c]+'"><div class="aim-progress-ring '+(p===0?'is-zero':'')+' '+(p===null?'is-missing':'')+'" style="--aim-p:'+v+'%"><span>'+fmtSource(p)+'</span></div>'+
+      '<b>'+esc(name)+'</b><small>Físico XML: '+fmtSource(p)+'<br>Avance cronograma: '+fmtSource(pc)+
+      (diff?'<br><span class="data-warning">Indicadores diferentes</span>':'')+'</small>'+
+      (comment?'<div class="aim-subscope-note">'+esc(comment)+'</div>':'')+'</div>';
   }
   function renderProcessOverview(){
     const target=$("serviceProcessOverview"),doc=src();
