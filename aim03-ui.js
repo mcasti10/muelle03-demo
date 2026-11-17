@@ -88,10 +88,10 @@
     $("homeServiceCurve").innerHTML=lineChart(curves,{calendar,title:"Curvas S por servicio",emptyText:"No se dispone de curvas para los servicios seleccionados."});
     $("homeCurveExplanation").textContent=calendar?"Fechas calendario de los archivos publicados. Cada serie comienza en su primera fecha válida.":"Vista preliminar con semanas de DEMOSTRACIÓN. Las fechas calendario se mostrarán cuando se autoricen y vinculen los Excel de cada servicio.";
   }
-  function historical(code,field,{ratio=false,threshold,emptyText}={}){
+  function historical(code,field,{ratio=false,threshold,emptyText,min,max}={}){
     const rows=at(code).filter(r=>r[field]!=null&&Number.isFinite(+r[field]));
     return lineChart([{name:field.toUpperCase(),color:field==="ppc"?"#c99524":"#755ac7",values:rows.map(r=>[tDate(r.fecha),+r[field]])}],
-     {calendar:true,ratio,max:ratio?1.2:1,min:0,threshold,emptyText:emptyText||"El Excel del servicio todavía no tiene una serie vinculada."});
+     {calendar:true,ratio,max:max??(ratio?1.2:1),min:min??0,threshold,emptyText:emptyText||"El Excel del servicio todavía no tiene una serie vinculada."});
   }
   function dailyBars(code){
     const rows=at(code).filter(r=>r.delta_real!=null&&Number.isFinite(+r.delta_real));
