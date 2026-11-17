@@ -230,6 +230,50 @@
       '<div class="aim-scroll"><table class="aim-source-table"><thead><tr><th>Actividad</th><th>Avance del cronograma</th><th>Avance físico XML</th><th>Predecesoras</th></tr></thead><tbody>'+
       activities+'</tbody></table></div>';
   }
+
+  function frontStyle(v){
+    const c=tone(v),map={
+      green:["#1b975c","#e9f7ee","#116343"],
+      blue:["#1b9aa8","#e4f6f8","#186878"],
+      yellow:["#c59c25","#fff6d6","#6c5512"],
+      orange:["#d78223","#fff0df","#86511a"],
+      red:["#cd5a62","#fff0f0","#a43c46"],
+      missing:["#aebccf","#f4f6f9","#627890"]
+    };
+    const x=map[c];return '--front-border:'+x[0]+';--front-bg:'+x[1]+';--front-text:'+x[2];
+  }
+  function matrixBody(doc,kind,items){
+    const documented=items.filter(x=>x[1]!=null),count=documented.length;
+    if(!count)return empty("Este componente no tiene actividades por frente identificadas en el XML.");
+    const max=Math.max(...documented.map(f=>doc.types[f[4]]?.names?.length||0));
+    const typical=documented.reduce((acc,f)=>((acc[f[4]]=(acc[f[4]]||0)+1),acc),{});
+    const commonKey=Object.keys(typical).sort((a,b)=>typical[b]-typical[a])[0];
+    const reference=doc.types[commonKey];
+    const header=Array.from({length:max},(_,i)=>{
+      const nm=reference?.names?.[i],name=nm==null?"Actividad según plantilla":srcName(nm);
+      return '<th title="'+esc(name)+'">A'+String(i+1).padStart(2,"0")+'</th>';
+    }).join("");
+    const rows=items.map(f=>{
+      const [num,root,pc,ph,key,stages,packed]=f,defined=root!=null&&doc.types[key],sel=frontNum===num;
+      const template=defined?doc.types[key]:null;
+      const cells=Array.from({length:max},(_,i)=>{
+        if(!template||i>=template.names.length)return '<td class="miss" title="Sin avance individual en el XML">—</td>';
+        const raw=packed.slice(4*i,4*i+4);
+        if(raw.length!==4)return '<td class="miss" title="Avance no disponible">—</td>';
+        const reported=parseInt(raw.slice(0,2),16),physical=parseInt(raw.slice(2),16);
+        const cls=physical>=100?"status-100":physical>=85?"status-85":physical>=50?"status-50":physical>=25?"status-25":"status-0";
+        const symbol=physical>=100?"✓":physical===0?"·":physical+"%";
+        const taskName=srcName(template.names[i]);
+        return '<td class="'+cls+'" title="'+esc(taskName)+'. Físico: '+physical+'%, cronograma: '+reported+'%." aria-label="'+esc(sourceFrontLabel(kind,num)+' · '+taskName+' · '+physical+'% físico')+'">'+symbol+'</td>';
+      }).join("");
+      const status=defined?fmtSource(ph):"—",missing=!defined;
+      return '<tr class="'+(sel?'selected':'')+'"><th><button type="button" data-aim-front="'+num+'" style="border:0;background:transparent;font:inherit;font-weight:750;color:inherit;cursor:pointer" title="Ver actividades de '+esc(sourceFrontLabel(kind,num))+'">'+esc(sourceFrontLabel(kind,num))+'</button>'+
+        '<small style="display:block;color:#8195a8">'+status+'</small></th>'+cells+'</tr>';
+    }).join("");
+    return '<div class="aim-matrix-header">Matriz de subactividades · '+count+' frentes con información</div>'+
+      '<p class="aim-matrix-foot">Cada casilla corresponde a una actividad del XML. ✓ significa 100% físico reportado, no aceptación técnica. A01–A'+max+' identifican posiciones de actividad; el nombre exacto aparece al pasar el cursor o al abrir el frente. Las plantillas no siempre tienen el mismo orden.</p>'+
+      '<div class="aim-matrix-wrap"><table class="aim-activity-matrix"><thead><tr><th>Eje, paño o tramo</th>'+header+'</tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
   function renderFronts(){
     const list=componentMap[selected]||[],doc=src();
     $("frontComponents").innerHTML=list.length?list.map(c=>
@@ -239,26 +283,43 @@
     $("frontDetailTitle").textContent=label?label[1]:"Selecciona un componente";
     if(!label){$("frontDetail").innerHTML=empty("Selecciona el frente que deseas consultar.");return}
     if(!doc){$("frontDetail").innerHTML=empty("Cargando porcentajes y predecesoras de los archivos XML.");return}
-    const kind=component==="arriostres"?"ejes":component,items=doc[selected]?.[kind]||[];
-    if(!items.length){
-      const isRail=selected==="P02"&&kind==="rieles";
-      const rail=(doc.summary.P02||[]).filter(x=>/REPOSICIÓN DE LÍNEAS FERROVIARIAS|DESMONTAJE DE RIELES/.test(srcName(x[1])));
-      $("frontDetail").innerHTML=isRail&&rail.length?
-        '<div class="aim-source-banner">El XML informa avance del servicio ferroviario, pero no aporta una relación inequívoca entre sectores y ejes. No se dibuja un mapa supuesto.</div><div class="aim-process-grid">'+rail.map(t=>circle(srcName(t[1]),t[3],t[2])).join("")+'</div>':
-        empty("No existe una relación espacial validada para este componente.");
+    const kind=component==="arriostres"?"ejes":component,documented=doc[selected]?.[kind]||[];
+    if(!documented.length){
+      const rail=selected==="P02"&&kind==="rieles"?
+        (doc.summary.P02||[]).filter(x=>/REPOSICIÓN DE LÍNEAS FERROVIARIAS|DESMONTAJE DE RIELES/.test(srcName(x[1]))):[];
+      $("frontDetail").innerHTML=rail.length?
+        '<div class="aim-source-banner">La vía férrea tiene avance reportado por capítulos, pero no contamos con un mapeo validado por eje o tramo.</div>'+legend()+'<div class="aim-process-grid">'+rail.map(t=>circle(srcName(t[1]),t[3],t[2])).join("")+'</div>':
+        empty("No hay datos individuales de avance por frente para esta categoría.");
       return;
     }
-    const isAxis=kind==="bloques"||kind==="ejes",sourceNote=isAxis?
-      "Selección longitudinal por eje identificado en XML; no equivale todavía a una geometría 2D o IFC validada.":
-      "La numeración de los sectores procede del XML. No se ha asignado cada sector a los ejes E00–E44.";
+    const isAxis=kind==="bloques"||kind==="ejes";
+    const items=kind==="bloques"?Array.from({length:44},(_,i)=>{
+      const num=i+1;return documented.find(f=>f[0]===num)||[num,null,null,null,null,[],null,[]];
+    }):documented;
+    const sourceNote=isAxis?
+      kind==="bloques"?
+        "Los bloques pares E04–E44 tienen actividad individual en el XML. En impares se controla solo reparación, pero falta un avance individual por eje; se muestran con «—», no 0%. E02 tampoco tiene registro individual.":
+        "Ejes de arriostre identificados en el XML. Su ubicación sigue pendiente de contrastarse con geometría IFC.":
+      "«Paño» y «Tramo» son denominaciones de navegación basadas en la numeración del XML. La equivalencia con intervalos E00–E44 NO está comprobada; por eso no se ha inventado «Tramo 0–1» como ubicación.";
     const chosen=items.find(f=>f[0]===frontNum);
-    $("frontDetail").innerHTML='<div class="aim-front-note">'+esc(sourceNote)+' · Corte de actividades '+doc.status[selected]+'.</div>'+
+    const warning=kind==="bloques"?
+      '<div class="aim-no-map"><b>Revisar paridad del alcance:</b> se adopta para el control que los ejes pares incluyen montaje de defensas nuevas y los impares solo reparación. El título de Sector 04 del XML indica lo contrario; los porcentajes y etapas individuales se toman únicamente del detalle existente en los pares.</div>':"";
+    $("frontDetail").innerHTML='<div class="aim-front-note">'+esc(sourceNote)+' · Corte XML '+niceDate(doc.status[selected])+'.</div>'+
+      warning+legend()+
       '<div class="aim-front-picker">'+items.map(f=>{
-        const id=sourceFrontLabel(kind,f[0]),sel=chosen?.[0]===f[0];
-        return '<button type="button" data-aim-front="'+f[0]+'" class="'+(sel?'sel':'')+'" title="Avance físico XML '+f[3]+'%">'+
-          '<b>'+esc(id)+'</b><span>'+fmtSource(f[3])+'</span></button>';
+        const num=f[0],id=sourceFrontLabel(kind,num),has=f[1]!=null,selected=chosen?.[0]===num;
+        const title=has?"Avance físico XML "+fmtSource(f[3]):
+          kind==="bloques"&&num%2===1?"Reparación sin registro de avance por eje":"Sin actividad individual identificada en XML";
+        return '<button type="button" data-aim-front="'+num+'" data-unknown="'+(has?0:1)+'" style="'+frontStyle(has?f[3]:null)+'" class="'+(selected?'sel':'')+'" title="'+esc(title)+'" aria-label="'+esc(id+' · '+title)+'">'+
+          '<b>'+esc(id)+'</b><span>'+fmtSource(has?f[3]:null)+'</span></button>';
       }).join("")+'</div>'+
-      (chosen?showFrontDetail(doc,kind,chosen):'<div class="aim-empty" style="margin-top:14px">Selecciona un eje o sector para consultar sus etapas, porcentajes por actividad y predecesoras.</div>');
+      matrixBody(doc,kind,items)+
+      (chosen?
+        chosen[1]!=null?showFrontDetail(doc,kind,chosen):
+          '<div class="aim-empty" style="margin-top:14px"><b>'+esc(sourceFrontLabel(kind,chosen[0]))+'</b>. '+(kind==="bloques"&&chosen[0]%2===1?
+          "Alcance definido como reparación sin montaje de nueva defensa, pero el XML no contiene una medición individual de este eje.": 
+          "No existe una actividad individual verificable para este eje en los datos recibidos.")+'</div>':
+        '<div class="aim-empty" style="margin-top:14px">Selecciona un eje, paño o tramo para ver etapas, tareas y predecesoras.</div>');
   }
   function refresh(){renderHome();renderService()}
   window.aim03Refresh=refresh;
