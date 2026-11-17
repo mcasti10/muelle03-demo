@@ -52,6 +52,41 @@ test('per-service public series are empty until confirmed and authorized',()=>{
  assert.match(ui,/cierre-pendiente/);
  assert.match(ui,/data-aim-component/);
 });
+test('verified P02 Excel and P02/P05 XML source projections retain progress and predecessor data',()=>{
+ const zlib=require('node:zlib');
+ const js=fs.readFileSync('datos-reales-aim03.js','utf8');
+ const get=k=>{
+  const re=new RegExp('const '+k+"='([^']+)'"),m=js.match(re);
+  assert.ok(m,'Missing '+k);return zlib.gunzipSync(Buffer.from(m[1],'base64')).toString('utf8');
+ };
+ const data=JSON.parse(get('PROJECT_DATA_GZIP'));
+ assert.equal(data.status.P02,'2026-11-08');
+ assert.equal(data.status.P05,'2026-11-08');
+ assert.equal(data.P02.bloques.length,21);
+ assert.equal(data.P02.losa.length,21);
+ assert.equal(data.P02.viga_tierra.length,21);
+ assert.equal(data.P02.viga_mar.length,21);
+ assert.equal(data.P05.ejes.length,39);
+ assert.deepEqual([...data.P02.bloques.map(x=>x[0])],Array.from({length:21},(_,i)=>4+i*2));
+ assert.deepEqual([...data.P05.ejes.map(x=>x[0])],Array.from({length:39},(_,i)=>i+1));
+ assert.deepEqual(Array.from(data.P05.overall),[11,7]);
+ const p2=data.P02.bloques.find(x=>x[0]===18);
+ const p5=data.P05.ejes.find(x=>x[0]===18);
+ assert.deepEqual([p2[2],p2[3]],[47,17]);
+ assert.deepEqual([p5[2],p5[3]],[27,13]);
+ assert.equal(data.P02.bloques.reduce((n,f)=>n+f[6].length/4,0),519);
+ assert.equal(data.P05.ejes.reduce((n,f)=>n+f[6].length/4,0),1092);
+ const predecessors=Object.values(data.types).reduce((n,t)=>n+t.pred.flat().length,0);
+ assert.ok(predecessors>40);
+ const daily=get('DAILY_DATA_GZIP').split(';');
+ assert.equal(daily.length,181);
+ const last=daily.at(-1).split(',').map(Number);
+ assert.equal(last[1],730000);
+ assert.equal(last[3],928300);
+ assert.equal(last[4],958400);
+ assert.equal(last[2],968593);
+ assert.match(js,/2026-11-04/);
+});
 test('IFC viewer keeps file local and exposes real mesh API, orbit and selection',()=>{
  assert.match(ifc,/input id="ifcFile" type="file"/);
  assert.match(ifc,/StreamAllMeshes/);
@@ -65,7 +100,7 @@ test('IFC viewer keeps file local and exposes real mesh API, orbit and selection
  assert.doesNotMatch(ifc,/fetch\(\s*file|XMLHttpRequest|api\.github\.com/);
 });
 test('source JavaScript syntax and IFC module syntax',()=>{
- for(const src of [ui,edtsrc,fs.readFileSync('datos-servicios.js','utf8')])assert.doesNotThrow(()=>new Function(src));
+ for(const src of [ui,edtsrc,fs.readFileSync('datos-servicios.js','utf8'),fs.readFileSync('datos-reales-aim03.js','utf8')])assert.doesNotThrow(()=>new Function(src));
  const model=ifc.match(/<script type="module">([\s\S]*?)<\/script>/);
  assert.ok(model,'module script missing');
  const tmp=path.join(process.cwd(),'tests','_ifc_syntax_check.mjs');
