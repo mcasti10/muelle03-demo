@@ -152,29 +152,50 @@
   }
   function renderProcessOverview(){
     const target=$("serviceProcessOverview"),doc=src();
-    if(!doc){target.innerHTML=empty("Cargando información de actividades desde los XML verificados.");return}
-    if(!["P02","P05"].includes(selected)){target.innerHTML=empty("No tenemos cronograma XML de este servicio.");return}
+    if(!doc){target.innerHTML=empty("Cargando avances del cronograma XML.");return}
+    if(!["P02","P05"].includes(selected)){target.innerHTML=empty("Este servicio aún no tiene un cronograma XML validado.");return}
     const all=doc.summary[selected]||[];
-    const filtered=selected==="P02"?
-      all.filter(t=>/DESMONTAJE DE RIELES|DESMONTAJE DE FENDERS|REPARACIÓN DE VIGAS DE BORDE LADO TIERRA|MOV\. DE TIERRAS Y LOSA|REPARACIÓN DE VIGAS DE BORDE LADO MAR|REPARACIÓN DE BLOQUES DE DEFENSA, DESMONTAJE|REPOSICIÓN DE LÍNEAS FERROVIARIAS|RED DE BANCODUCTOS|TORRE DE TRANSFERENCIA/i.test(srcName(t[1]))):
-      all.filter(t=>t[4]===3&&/^SECTOR\s+[1-5](?:\b|[- ])/i.test(srcName(t[1])));
-    target.innerHTML='<div class="aim-source-banner">Valores reportados en XML con fecha de estado '+doc.status[selected]+'. Los porcentajes físicos y los del cronograma se muestran por separado. No representan aceptación técnica.</div>'+
-      (filtered.length?'<div class="aim-process-grid">'+filtered.map(t=>circle(srcName(t[1]),t[3],t[2])).join("")+'</div>':empty("Sin etapas agrupadas directamente en este XML."));
+    const find=rx=>all.find(t=>rx.test(srcName(t[1])));
+    if(selected==="P02"){
+      const sections=[
+        ["Reparación de losa superior",/^MOV\. DE TIERRAS Y LOSA DE CONCRETO ARMADO$/i,"Indicador del capítulo que también incluye movimiento de tierras."],
+        ["Reposición de vía férrea",/^REPOSICIÓN DE LÍNEAS FERROVIARIAS$/i,"Capítulo específico de reposición; no incluye retiro de rieles."],
+        ["Demolición de torre de transferencia",/^DEMOLICIÓN CONTROLADA DE TORRE DE TRANSFERENCIA$/i,"Demolición reportada en cronograma."],
+        ["Reparación de vigas de borde · tierra",/^REPARACIÓN DE VIGAS DE BORDE LADO TIERRA$/i,"Indicador del capítulo específico."],
+        ["Reparación de vigas de borde · mar",/^REPARACIÓN DE VIGAS DE BORDE LADO MAR Y BLOQUES DE DEFENSA$/i,"Indicador COMBINADO con bloques de defensa; no es exclusivo de las vigas."],
+        ["Reparación de bloques de defensa",/^SECTOR 04 - INSTALACIÓN DE FENDER SYSTEMS/i,"Indicador combinado del Sector 04. Incluye reparación y montaje; ver ejes."],
+        ["Nueva red eléctrica · obra civil",/^RED DE BANCODUCTOS \(L=465M\)$/i,"Solo bancoductos L=465 m. No representa instalaciones eléctricas terminadas."]
+      ];
+      target.innerHTML='<div class="aim-source-banner">Subalcances del cronograma P02 al '+niceDate(doc.status.P02)+'. Valores físicos reportados; algunos capítulos incluyen más de una actividad y están identificados. No son porcentajes de aceptación.</div>'+
+        legend()+'<div class="aim-process-grid">'+sections.map(([label,rx,note])=>{
+          const row=find(rx);return circle(label,row?.[3]??null,row?.[2]??null,note);
+        }).join("")+'</div>'+
+        '<div class="aim-front-head"><h4>Bloques de defensa · criterio de alcance</h4>'+
+        '<p><b>Ejes pares E04–E44</b> · Reparación del bloque y montaje de nueva defensa según el detalle por eje del XML.</p>'+
+        '<p><b>Ejes impares</b> · Reparación del bloque sin montaje de defensa nueva, conforme al criterio de control indicado. No se dispone de porcentajes individualizados por eje impar.</p>'+
+        '<p class="data-warning">Pendiente de aclaración: el título del capítulo Sector 04 del XML describe una distribución par/impar distinta de la observada en el detalle de montaje por eje.</p></div>';
+    }else{
+      const sectors=all.filter(t=>/^SECTOR\s+[1-5](?:\b|\s*-)/i.test(srcName(t[1])));
+      target.innerHTML='<div class="aim-source-banner">P05 al '+niceDate(doc.status.P05)+'. Cada sector conserva sus porcentajes físico y de cronograma, sin calcular promedios no ponderados de los 39 ejes.</div>'+
+        legend()+(sectors.length?'<div class="aim-process-grid">'+sectors.map(t=>circle(srcName(t[1]),t[3],t[2])).join("")+'</div>':empty("No se encontró agrupación por sectores en P05."));
+    }
   }
   const componentMap={
     P02:[
       ["bloques","Bloques de defensa","21 bloques identificados por eje"],
-      ["losa","Losa superior","21 sectores L1–L21 del XML"],
-      ["viga_tierra","Vigas de borde tierra","21 sectores del XML"],
-      ["viga_mar","Vigas de borde mar","21 sectores del XML"],
+      ["losa","Losa superior","21 paños del cronograma (L01–L21)"],
+      ["viga_tierra","Vigas de borde lado tierra","21 tramos del cronograma"],
+      ["viga_mar","Vigas de borde lado mar","21 tramos del cronograma"],
       ["rieles","Línea ferroviaria","Sin correspondencia por eje validada"]
     ],
     P05:[["arriostres","Pilotes de arriostre","39 ejes de intervención del XML"]],
     P07:[["revestimiento","Revestimiento sobre tablero","Sin cronograma publicado"]]
   };
   function sourceFrontLabel(kind,num){
-    return kind==="bloques"||kind==="arriostres"?"E"+String(num).padStart(2,"0"):
-      kind==="losa"?"L"+num:"Sector "+num;
+    return kind==="bloques"||kind==="ejes"||kind==="arriostres"?"E"+String(num).padStart(2,"0"):
+      kind==="losa"?"Paño "+String(num).padStart(2,"0"):
+      kind==="viga_tierra"||kind==="viga_mar"?"Tramo "+String(num).padStart(2,"0"):
+      "Sector "+num;
   }
   const typeLink={0:"FF",1:"FS",2:"SF",3:"SS"};
   function showFrontDetail(doc,key,front){
