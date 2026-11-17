@@ -1,83 +1,160 @@
 "use strict";
-/* Presentación AIM03 V0.4. No calcula avance global sin pesos aprobados. */
-(function () {
-  let serviceId = "P05", axisId = "E20", homeCurve = "P02", stageFilter = "ALL";
-  const $ = id => document.getElementById(id);
-  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-  const percent = value => Number.isFinite(value) ? Number(value).toFixed(1) + "%" : "—";
-  const detail = service => {
-    const tasks = scoped(service.id);
-    if (!tasks.length) return {service, tasks, status:"pending", title:"Sin línea base", g:null};
-    const g = agg(tasks), closed = tasks.every(t => Number(t.avance_real_pct) >= 100);
-    return {service, tasks, g, status:closed?"closed":g.a>0?"active":"notstarted", title:closed?"Cerrado (demo)":g.a>0?"En seguimiento (demo)":"Sin iniciar (demo)"};
-  };
-  const services = () => data.services.map(detail);
-  function chart(code) {
-    const tasks = scoped(code);
-    if (!tasks.length) return '<p class="aim-empty">Sin curva. La EDT y la línea base están pendientes.</p>';
-    const g=agg(tasks), w=770,h=175,L=35,R=760,B=145,T=12;
-    const X=k=>L+(k-1)/(cut-1)*(R-L), Y=v=>B-v/100*(B-T);
-    const path=type=>Array.from({length:cut},(_,i)=> (i?'L':'M')+X(i+1).toFixed(1)+' '+Y(agg(tasks,i+1)[type]).toFixed(1)).join(' ');
-    let grid='';for(let i=0;i<=100;i+=25)grid+='<line x1="'+L+'" y1="'+Y(i)+'" x2="'+R+'" y2="'+Y(i)+'" stroke="#e2eaf4" stroke-dasharray="3 5"/><text x="28" y="'+(Y(i)+4)+'" font-size="10" fill="#8192a8" text-anchor="end">'+i+'%</text>';
-    const closed=tasks.every(t=>Number(t.avance_real_pct)>=100);
-    return '<div class="aim-chart-meta"><span>Real <b>'+percent(g.a)+'</b></span><span>Plan <b>'+percent(g.p)+'</b></span>'+(g.p>0&&!closed?'<span>SPI físico (demo) <b>'+(g.a/g.p).toFixed(2)+'</b></span>':'')+'</div>'+
-      '<svg class="aim-curve" viewBox="0 0 '+w+' '+h+'" role="img" aria-label="Curva S de demostración">'+grid+'<path d="'+path('p')+'" stroke="#2b6bf0" stroke-width="2.5" fill="none"/><path d="'+path('a')+'" stroke="#13a471" stroke-width="3" fill="none"/><line x1="'+X(week)+'" x2="'+X(week)+'" y1="'+T+'" y2="'+B+'" stroke="#a0b6d3" stroke-dasharray="4 5"/><text x="'+X(week)+'" y="169" fill="#7c8ca5" font-size="10" text-anchor="middle">S'+week+'</text></svg><div class="aim-chart-key"><span><i style="background:#2b6bf0"></i>Plan</span><span><i style="background:#13a471"></i>Real</span><small>Datos de demostración</small></div>';
+/* AIM03 · Diseño aprobado hasta tres niveles.
+   No atribuye datos de un Excel a ningún servicio sin confirmar su origen. */
+(function(){
+  const $=id=>document.getElementById(id);
+  const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const fmt=v=>Number.isFinite(v)?(v*100).toFixed(1)+"%":"—";
+  const index=v=>Number.isFinite(v)?v.toFixed(3):"—";
+  const pctPoint=v=>Number.isFinite(v)?(v>=0?"+":"")+(v*100).toFixed(2)+" p.p.":"—";
+  const ids=()=>data.services.map(s=>s.id);
+  const colors=["#2b69d6","#0e9274","#865cc7","#dc832d","#b94b72","#578c9b","#65759b"];
+  let selected="P02",section="seguimiento",component=null,curveSelection=new Set(["P02","P05"]),cutOverrides={};
+  const pack=code=>(window.AIM03_SERIES?.servicios||{})[code]||{estado:null,registros:[]};
+  function records(code){
+    const rows=(pack(code).registros||[]).filter(r=>typeof r.fecha==="string"&&/^\d{4}-\d{2}-\d{2}$/.test(r.fecha)&&Number.isFinite(+r.ev)&&Number.isFinite(+r.pv)&&+r.ev>=0&&+r.ev<=1.01&&+r.pv>=0&&+r.pv<=1.01);
+    rows.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+    return rows.filter((r,i)=>i===rows.length-1||r.fecha!==rows[i+1].fecha);
   }
-  function renderHome() {
-    const info=services(), closed=info.filter(s=>s.status==='closed').length, active=info.filter(s=>s.status==='active').length, other=info.filter(s=>['notstarted','pending'].includes(s.status)).length;
-    const stats=[['SERVICIOS CERRADOS',closed,'Datos de demostración'],['SERVICIOS CON AVANCE',active,'Datos de demostración'],['SIN AVANCE O SIN LÍNEA BASE',other,'Requieren actualización'],['AVANCE GLOBAL PONDERADO','—','Pendiente de pesos relativos presupuestales autorizados']];
-    $('globalMetrics').innerHTML=stats.map(x=>'<div class="metric"><div class="cap">'+x[0]+'</div><div class="num">'+x[1]+'</div><div class="foot">'+x[2]+'</div></div>').join('');
-    $('packageCards').innerHTML=info.map(s=>{
-      const g=s.g; let sub=g?'<div class="aim-card-numbers"><span>Real <b>'+percent(g.a)+'</b></span>'+(s.status==='closed'?'':'<span>Plan <b>'+percent(g.p)+'</b></span>')+(s.status==='active'&&g.p>0?'<span>SPI físico (demo) <b>'+g.spi.toFixed(2)+'</b></span>':'')+'</div><div class="bar"><i class="actual" style="width:'+g.a+'%"></i></div>':'<p class="aim-muted">Sin avance calculado.</p>';
-      return '<button type="button" class="aim-card" data-aim-service="'+s.service.id+'"><span class="aim-code">'+s.service.id+'</span><strong>'+esc(s.service.name)+'</strong><span class="aim-status '+s.status+'">'+s.title+'</span>'+sub+'</button>';
-    }).join('');
-    $('homeCurveService').innerHTML=info.map(s=>'<option value="'+s.service.id+'">'+s.service.id+' · '+esc(s.service.name)+'</option>').join('');
-    $('homeCurveService').value=homeCurve;
-    $('homeServiceCurve').innerHTML=chart(homeCurve);
+  function at(code){const rows=records(code);const cutDate=cutOverrides[code];return cutDate?rows.filter(r=>r.fecha<=cutDate):rows}
+  function mean(values){const v=values.filter(Number.isFinite);return v.length?v.reduce((a,b)=>a+b,0)/v.length:null}
+  function measure(code){
+    const svc=data.services.find(s=>s.id===code),rows=at(code),r=rows.at(-1),tasks=scoped(code);
+    const demo=tasks.length?agg(tasks):null,p=pack(code);
+    let real=r?+r.ev:demo?demo.a/100:null,planv=r?+r.pv:demo?demo.p/100:null;
+    let spi=r?(Number.isFinite(+r.spi)?+r.spi:planv>0?real/planv:null):demo&&demo.p>0?demo.spi:null;
+    const finished=p.estado==="cerrado"&&r&&real>=.999;
+    const measured=!!r ||!!demo;
+    const state=finished?"cerrado":measured?(real>=.999?"cierre-pendiente":real>0?"en-ejecucion":"sin-iniciar"):"sin-base";
+    return {svc,code,rows,latest:r,real,plan:planv,spi,state,hasSource:!!r,isDemo:!r,ppc:r&&Number.isFinite(+r.ppc)?+r.ppc:null,
+      ppcAvg:r?mean(rows.map(v=>v.ppc==null?null:+v.ppc)):null,
+      variance:Number.isFinite(real)&&Number.isFinite(planv)?real-planv:null,
+      start:rows[0]?.fecha||null,end:r?.fecha||null};
+  }
+  const statusText=m=>({"cerrado":"Cerrado","en-ejecucion":"En ejecución","cierre-pendiente":"100% físico · cierre pendiente","sin-iniciar":"Sin iniciar","sin-base":"Sin datos"})[m.state];
+  const semColor=m=>m.state==="cerrado"?"done":m.state==="sin-base"||!Number.isFinite(m.spi)?"none":m.spi<.7?"red":m.spi<.85?"orange":"green";
+  const isDelayed=m=>m.state==="en-ejecucion"&&Number.isFinite(m.spi)&&m.spi<.85;
+  function empty(message){return '<div class="aim-empty">'+esc(message)+'</div>'}
+  function lineChart(series,opt={}){
+    const cfg={height:210,ratio:false,title:"",...opt},list=series.filter(s=>s.values?.length>=2);
+    if(!list.length)return empty(cfg.emptyText||"Sin datos publicados para este gráfico.");
+    const minT=Math.min(...list.map(s=>s.values[0][0])),maxT=Math.max(...list.map(s=>s.values.at(-1)[0]));
+    const W=800,H=cfg.height,L=43,R=785,T=16,B=H-34,span=Math.max(1,maxT-minT);
+    const top=cfg.max??Math.max(1,...list.flatMap(s=>s.values.map(p=>p[1]))),bottom=cfg.min??0;
+    const yy=v=>B-(v-bottom)/Math.max(.0001,top-bottom)*(B-T),xx=t=>L+(t-minT)/span*(R-L);
+    let svg='<svg viewBox="0 0 '+W+' '+H+'" class="aim-curve" role="img" aria-label="'+esc(cfg.title)+'">';
+    for(let n=0;n<=4;n++){const v=bottom+(top-bottom)*n/4;svg+='<line x1="'+L+'" y1="'+yy(v)+'" x2="'+R+'" y2="'+yy(v)+'" stroke="#e4eaf2" stroke-dasharray="3 4"/><text x="'+(L-7)+'" y="'+(yy(v)+3)+'" font-size="10" text-anchor="end" fill="#7287a2">'+(cfg.ratio?v.toFixed(2):Math.round(v*100)+"%")+'</text>'}
+    if(cfg.threshold!=null){const y=yy(cfg.threshold);if(y>=T&&y<=B)svg+='<line x1="'+L+'" y1="'+y+'" x2="'+R+'" y2="'+y+'" stroke="#d48a31" stroke-width="1" stroke-dasharray="6 5"/>'}
+    for(const s of list){const path=s.values.map((v,i)=>(i?"L":"M")+xx(v[0]).toFixed(1)+" "+yy(v[1]).toFixed(1)).join(" ");
+      svg+='<path d="'+path+'" stroke="'+s.color+'" fill="none" stroke-width="'+(s.dashed?2:2.6)+'"'+(s.dashed?' stroke-dasharray="6 4"':'')+' stroke-linecap="round" stroke-linejoin="round"/>';
+    }
+    for(let i=0;i<=4;i++){
+      const x=L+(R-L)*i/4;
+      let label;if(cfg.calendar){const date=new Date(minT+span*i/4);label=date.toLocaleDateString("es-PE",{day:"2-digit",month:"short",year:"2-digit",timeZone:"UTC"})}else label="S"+Math.round(1+(maxT-minT)*i/4);
+      svg+='<text x="'+x+'" y="'+(H-10)+'" text-anchor="middle" font-size="10" fill="#7187a2">'+label+'</text>';
+    }
+    svg+="</svg>";
+    return svg+'<div class="aim-chart-key">'+list.map(s=>'<span><i style="background:'+s.color+'"></i>'+esc(s.name)+(s.dashed?" (plan)":" (real)")+'</span>').join("")+'</div>';
+  }
+  const tDate=iso=>new Date(iso+"T00:00:00Z").getTime();
+  function demoCurves(code){
+    const tasks=scoped(code);if(!tasks.length)return [];
+    return [{name:code,values:Array.from({length:cut},(_,i)=>[i+1,agg(tasks,i+1).a/100]),color:colors[ids().indexOf(code)%colors.length],dashed:false},
+      {name:code,values:Array.from({length:cut},(_,i)=>[i+1,agg(tasks,i+1).p/100]),color:colors[ids().indexOf(code)%colors.length],dashed:true}];
+  }
+  function serviceCurves(code){
+    const rows=at(code),color=colors[ids().indexOf(code)%colors.length];
+    if(rows.length>=2)return [{name:code,values:rows.map(r=>[tDate(r.fecha),+r.ev]),color,dashed:false},
+      {name:code,values:rows.map(r=>[tDate(r.fecha),+r.pv]),color,dashed:true}];
+    return [];
+  }
+  function renderHome(){
+    const ms=ids().map(measure),active=ms.filter(m=>m.state==="en-ejecucion").length,closed=ms.filter(m=>m.state==="cerrado").length,late=ms.filter(isDelayed).length;
+    const states=[["SERVICIOS EN EJECUCIÓN",active],["SERVICIOS CERRADOS",closed],["SERVICIOS CON ATRASO",late]];
+    $("globalMetrics").innerHTML=states.map(([label,n])=>'<div class="metric"><div class="cap">'+label+'</div><div class="num">'+n+'</div><div class="foot">'+(label.includes("ATRASO")?"SPI inferior a 0.85":"Según el estado de cada servicio")+'</div></div>').join("");
+    $("packageCards").innerHTML=ms.map(m=>{
+      const color=semColor(m),tag=m.state==="cerrado"?"✓":color==="none"?"·":"●";
+      const vals=[["Plan",fmt(m.plan)],["Real",fmt(m.real)],["SPI",m.state==="cerrado"?"—":index(m.spi)],["PPC promedio",fmt(m.ppcAvg)]];
+      return '<button type="button" class="aim-card aim-card-v05" data-aim-service="'+m.code+'">'+
+        '<span class="aim-card-top"><b class="aim-code">'+m.code+'</b><span class="aim-traffic '+color+'" title="Estado según SPI">'+tag+'</span></span>'+
+        '<strong>'+esc(m.svc?.name||m.code)+'</strong><span class="aim-status">'+statusText(m)+(m.isDemo&&m.real!=null?" · demo":"")+'</span>'+
+        '<span class="aim-card-grid">'+vals.map(([title,value])=>'<span><small>'+title+'</small><b>'+value+'</b></span>').join("")+'</span></button>';
+    }).join("");
+    const selector=$("homeCurveSelector");
+    selector.innerHTML=ms.map(m=>'<label class="aim-curve-check"><input type="checkbox" data-aim-curve="'+m.code+'" '+(curveSelection.has(m.code)?"checked":"")+'><span>'+m.code+'</span></label>').join("");
+    const selected=[...curveSelection].filter(id=>ids().includes(id));const live=selected.flatMap(serviceCurves);
+    const calendar=live.length>0;
+    const curves=calendar?live:selected.flatMap(demoCurves);
+    $("homeServiceCurve").innerHTML=lineChart(curves,{calendar,title:"Curvas S por servicio",emptyText:"No se dispone de curvas para los servicios seleccionados."});
+    $("homeCurveExplanation").textContent=calendar?"Fechas calendario de los archivos publicados. Cada serie comienza en su primera fecha válida.":"Vista preliminar con semanas de DEMOSTRACIÓN. Las fechas calendario se mostrarán cuando se autoricen y vinculen los Excel de cada servicio.";
+  }
+  function historical(code,field,{ratio=false,threshold,emptyText}={}){
+    const rows=at(code).filter(r=>r[field]!=null&&Number.isFinite(+r[field]));
+    return lineChart([{name:field.toUpperCase(),color:field==="ppc"?"#c99524":"#755ac7",values:rows.map(r=>[tDate(r.fecha),+r[field]])}],
+     {calendar:true,ratio,max:ratio?1.2:1,min:0,threshold,emptyText:emptyText||"El Excel del servicio todavía no tiene una serie vinculada."});
+  }
+  function dailyBars(code){
+    const rows=at(code).filter(r=>r.delta_real!=null&&Number.isFinite(+r.delta_real));
+    if(!rows.length)return empty("El avance diario estará disponible cuando se vincule el Excel del servicio.");
+    const W=800,H=195,L=40,R=783,B=155,T=14,max=Math.max(.001,...rows.map(r=>+r.delta_real));
+    let svg='<svg class="aim-curve" viewBox="0 0 '+W+' '+H+'" role="img" aria-label="Avance diario del servicio">';
+    rows.forEach((r,i)=>{const x=L+(R-L)*i/Math.max(1,rows.length),w=Math.max(1,(R-L)/rows.length-.7),bh=(+r.delta_real/max)*(B-T);
+      svg+='<rect x="'+x+'" y="'+(B-bh)+'" width="'+w+'" height="'+bh+'" fill="#3488dc" opacity=".85"/>'});
+    svg+='<line x1="'+L+'" y1="'+B+'" x2="'+R+'" y2="'+B+'" stroke="#a6b7c9"/><text x="'+L+'" y="180" font-size="10" fill="#7c8da2">'+rows[0].fecha+'</text><text x="'+R+'" y="180" text-anchor="end" font-size="10" fill="#7c8da2">'+rows.at(-1).fecha+'</text></svg>';return svg;
   }
   function renderService(){
-    const svc=data.services.find(s=>s.id===serviceId)||data.services[0];if(!svc)return;
-    const info=detail(svc), tasks=info.tasks, g=info.g, spatial=serviceId==='P02'||serviceId==='P05';
-    $('serviceNav').innerHTML=data.services.map(s=>'<button type="button" data-aim-service="'+s.id+'" class="aim-service-selector '+(s.id===serviceId?'sel':'')+'"><small>'+s.id+'</small>'+esc(s.name)+'</button>').join('');
-    $('serviceTitle').textContent=svc.id+' · '+svc.name;
-    $('serviceDescription').textContent=svc.description||'';
-    const vals=g?[['AVANCE FÍSICO',percent(g.a)],['PROGRAMADO',percent(g.p)],['ESTADO',info.title],['SPI FÍSICO',info.status==='closed'?'No aplica':g.p>0?g.spi.toFixed(2)+' (demo)':'Sin base']]:[['ESTADO','Sin línea base'],['AVANCE FÍSICO','No calculado']];
-    $('serviceStats').innerHTML=vals.map(x=>'<div class="aim-stat"><small>'+x[0]+'</small><b>'+x[1]+'</b></div>').join('');
-    $('serviceCurve').innerHTML=chart(serviceId);
-    $('serviceLocationTitle').textContent=serviceId==='P05'?'Ubicación por eje':serviceId==='P02'?'Control provisional por tramo':'Actividades del servicio';
-    if(spatial){const ids=serviceId==='P05'?data.axes.filter(a=>a.arriostre).map(a=>a.id):data.axes.filter(a=>a.plataforma).map(a=>a.id);
-      if(!ids.includes(axisId))axisId=ids[0];
-      $('serviceLocation').innerHTML='<div class="aim-axis-grid">'+ids.map(id=>{const x=agg(scoped(serviceId,id));return '<button type="button" data-aim-axis="'+id+'" class="'+(axisId===id?'sel':'')+'"><b>'+id+'</b><span>'+percent(x.a)+'</span></button>'}).join('')+'</div>';
-      $('serviceLocationNote').textContent=serviceId==='P02'?'La sectorización por áreas del tablero y sus límites transversales aún deben vincularse al IFC y al plano. No se han supuesto superficies.':'Los 39 frentes corresponden al esquema de control. La equivalencia con los ejes físicos requiere validación.';
-    }else{$('serviceLocation').innerHTML='<p class="aim-muted">Sin sectorización espacial definida para este servicio.</p>';$('serviceLocationNote').textContent='';}
-    $('serviceScope').textContent=spatial?'Ubicación '+axisId:'Servicio completo';
-    let rows=spatial?scoped(serviceId,axisId):tasks;
-    const groups=[...new Set(rows.map(t=>t.grupo))];if(stageFilter!=='ALL'&&!groups.includes(stageFilter))stageFilter='ALL';
-    $('serviceStageTabs').innerHTML='<div class="aim-stage-tabs"><button data-aim-group="ALL" class="'+(stageFilter==='ALL'?'sel':'')+'">Todas</button>'+groups.map(s=>'<button data-aim-group="'+esc(s)+'" class="'+(stageFilter===s?'sel':'')+'">'+esc(s)+'</button>').join('')+'</div>';
-    if(stageFilter!=='ALL')rows=rows.filter(t=>t.grupo===stageFilter);
-    $('serviceActivities').innerHTML=rows.length?'<div class="aim-scroll"><table class="data-table"><thead><tr><th>Actividad</th><th>Etapa</th><th>Unidad</th><th>Real</th><th>Plan</th><th>Predecesoras</th></tr></thead><tbody>'+rows.map(t=>'<tr><td><b>'+esc(t.actividad)+'</b><small style="display:block;color:#8496ad">'+esc(t.codigo_actividad)+' · '+esc(t.id)+'</small></td><td>'+esc(t.grupo)+'</td><td>'+esc(t.unidad)+'</td><td>'+percent(actual(t,week))+'</td><td>'+percent(plan(t,week))+'</td><td>'+esc((t.predecesoras||[]).join(', ')||'—')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="aim-empty">No hay actividades definidas para este servicio.</p>';
-    $('serviceModelLink').hidden=!spatial;$('serviceModelLink').dataset.aimModel=spatial?serviceId:'';
-    $('serviceNote').textContent=spatial?'Los avances, metrados y fechas son sintéticos. Las dependencias no equivalen a autorizaciones para ejecución.':'Sin cronograma real incorporado. La EDT, ubicación y ponderación deben definirse.';
+    if(!ids().includes(selected))selected=ids()[0];
+    const m=measure(selected),svc=m.svc; if(!svc)return;
+    $("serviceNav").innerHTML=data.services.map(s=>'<button type="button" data-aim-service="'+s.id+'" class="aim-service-selector '+(s.id===selected?"sel":"")+'"><small>'+s.id+'</small>'+esc(s.name)+'</button>').join("");
+    $("serviceTitle").textContent=svc.id+" · "+svc.name;
+    $("serviceDescription").textContent=svc.description||"";
+    $("serviceSegmented").innerHTML='<button type="button" data-aim-section="seguimiento" class="'+(section==="seguimiento"?"sel":"")+'">Seguimiento</button><button type="button" data-aim-section="frentes" class="'+(section==="frentes"?"sel":"")+'">Frentes y componentes</button>';
+    $("serviceFollowupView").hidden=section!=="seguimiento";$("serviceFrontsView").hidden=section!=="frentes";
+    const vals=[["AVANCE REAL",fmt(m.real)],["PROGRAMADO",fmt(m.plan)],["DESVÍO",pctPoint(m.variance)],["SPI",m.state==="cerrado"?"No aplica":index(m.spi)],["PPC DIARIO",fmt(m.ppc)],["PPC PROMEDIO",fmt(m.ppcAvg)]];
+    $("serviceStats").innerHTML=vals.map(([k,v])=>'<div class="aim-stat"><small>'+k+'</small><b>'+v+'</b></div>').join("");
+    $("serviceNote").textContent=m.hasSource?"Origen: indicadores publicados del servicio. Los avances se muestran al corte seleccionado.":"Sin serie oficial asignada. Solo avance físico de DEMOSTRACIÓN cuando existe EDT sintética; PPC no disponible.";
+    const picker=$("serviceCutDate");picker.disabled=!m.hasSource;picker.min=m.start||"";picker.max=records(selected).at(-1)?.fecha||"";picker.value=m.end||"";
+    $("serviceCutLabel").textContent=m.end?"Corte "+m.end:"Corte de demostración";
+    $("serviceCurve").innerHTML=lineChart(serviceCurves(selected).length?serviceCurves(selected):demoCurves(selected),{calendar:!!serviceCurves(selected).length,title:"Curva S por servicio"});
+    $("servicePpcChart").innerHTML=historical(selected,"ppc",{max:1,emptyText:"Sin historial PPC publicado para este servicio."});
+    $("serviceSpiChart").innerHTML=historical(selected,"spi",{ratio:true,threshold:.85,emptyText:"Sin historial SPI publicado para este servicio."});
+    $("serviceDeltaChart").innerHTML=historical(selected,"desvio",{min:-.10,max:.05,emptyText:"Sin historial de desvíos publicado para este servicio."});
+    $("serviceDailyChart").innerHTML=dailyBars(selected);
+    renderFronts();
+  }
+  const componentMap={
+    P02:[["bloques","Bloques de defensa","Control por bloque y sus actividades"],["losa","Losa superior","Control por áreas"],["vigas","Vigas de borde","Lado tierra y lado mar"],["rieles","Rieles","Control por tramos"]],
+    P05:[["arriostres","Pilotes de arriostre","Control por eje y componentes"]],
+    P07:[["revestimiento","Revestimiento sobre tablero","Control futuro por áreas"]]
+  };
+  function renderFronts(){
+    const list=componentMap[selected]||[];
+    const container=$("frontComponents");
+    container.innerHTML=list.length?list.map(c=>'<button type="button" class="aim-front-card '+(component===c[0]?"sel":"")+'" data-aim-component="'+esc(c[0])+'"><b>'+esc(c[1])+'</b><small>'+esc(c[2])+'</small></button>').join(""):empty("Los frentes de este servicio se definirán según su EDT aprobada.");
+    const label=list.find(c=>c[0]===component);
+    $("frontDetailTitle").textContent=label?label[1]:"Selecciona un componente";
+    $("frontDetail").innerHTML=label?'<div class="aim-empty">Estructura preparada para vincular el mapa, las actividades y las tarjetas del componente «'+esc(label[1])+'». No se han asignado porcentajes ni estados ficticios de frentes.</div>':
+      '<div class="aim-empty">Elige un frente o componente para continuar con el diseño del tercer nivel.</div>';
   }
   function refresh(){renderHome();renderService()}
   window.aim03Refresh=refresh;
-  document.addEventListener('click',e=>{
-    const b=e.target.closest('button');if(!b)return;
-    if(b.dataset.aimService){serviceId=b.dataset.aimService;axisId=serviceId==='P05'?'E20':'E18';stageFilter='ALL';showScreen('services');refresh();}
-    if(b.dataset.aimAxis){axisId=b.dataset.aimAxis;stageFilter='ALL';renderService();}
-    if(b.dataset.aimGroup){stageFilter=b.dataset.aimGroup;renderService();}
-    if(b.dataset.screen==='ifc'||b.dataset.aimModel){const frame=$('ifcFrame'),service=b.dataset.aimModel||'ALL';if(!frame.getAttribute('src'))frame.src='modelo-ifc.html?servicio='+encodeURIComponent(service);else frame.contentWindow?.postMessage({kind:'aim03.filter',service},location.origin);if(b.dataset.aimModel)showScreen('ifc');}
+  document.addEventListener("click",e=>{
+    const btn=e.target.closest("button");if(!btn)return;
+    if(btn.dataset.aimService){selected=btn.dataset.aimService;section="seguimiento";component=null;showScreen("services");refresh();}
+    if(btn.dataset.aimSection){section=btn.dataset.aimSection;renderService();}
+    if(btn.dataset.aimComponent){component=btn.dataset.aimComponent;renderFronts();}
+    if(btn.dataset.screen==="ifc"){const frame=$("ifcFrame");if(!frame.getAttribute("src"))frame.src="modelo-ifc.html";}
   });
-  $('homeCurveService').addEventListener('change',e=>{homeCurve=e.target.value;$('homeServiceCurve').innerHTML=chart(homeCurve)});
-  window.addEventListener('message',e=>{
-    if(e.origin!==location.origin||e.data?.kind!=='aim03.ifc-selection')return;
+  document.addEventListener("change",e=>{
+    const input=e.target;
+    if(input.matches("[data-aim-curve]")){if(input.checked)curveSelection.add(input.dataset.aimCurve);else curveSelection.delete(input.dataset.aimCurve);renderHome();}
+    if(input.id==="serviceCutDate"){cutOverrides[selected]=input.value;renderService();}
+  });
+  window.addEventListener("message",e=>{
+    if(e.origin!==location.origin||e.data?.kind!=="aim03.ifc-selection")return;
     const {service,name,expressID,activity}=e.data;
-    const panel=$('ifcSelection');
-    panel.textContent='Elemento '+expressID+' · '+(name||'Sin nombre')+' · Servicio sugerido '+service+' · '+(activity||'Actividad por definir')+'. Eje por validar. ';
-    if(service==='P02'||service==='P05'){
-      const button=document.createElement('button');button.type='button';button.className='btn';
-      button.dataset.aimService=service;button.textContent='Abrir servicio '+service;panel.append(button);
-    }
+    const block=$("ifcSelection");block.textContent="Elemento "+expressID+" · "+(name||"Sin nombre")+" · "+service+" · "+(activity||"Actividad por definir")+". Eje por validar. ";
+    if(ids().includes(service)){const b=document.createElement("button");b.type="button";b.className="btn";b.dataset.aimService=service;b.textContent="Abrir paquete "+service;block.append(b)}
   });
   refresh();
 })();
