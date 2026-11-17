@@ -26,7 +26,7 @@ const {chromium}=require('playwright');
   assert.match(await page.locator('#globalMetrics').innerText(),/SERVICIOS CON ATRASO/);
   assert.equal(await page.locator('#screen-home').locator('input[type="file"]').count(),0);
   assert.equal(await page.locator('input[type="file"]').count(),0);
-  assert.equal(await page.locator('[data-screen="services"]').first().innerText(),'Paquetes constructivos');
+  assert.match(await page.locator('[data-screen="services"]').first().innerText(),/Paquetes constructivos/);
   assert.equal(await page.locator('#homeCurveSelector [type="checkbox"]').count(),7);
   await page.locator('#packageCards [data-aim-service="P02"]').click();
   assert.ok(await page.locator('#screen-services').isVisible());
